@@ -35,6 +35,19 @@ jobs:
           go-version-file: luci-app-ssclash/profile-merge/go.mod
           cache-dependency-path: luci-app-ssclash/profile-merge/go.sum
 
+      - name: Check workflow definitions
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSLo "/tmp/${archive}" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "/tmp/${archive}" |
+            sha256sum --check --strict
+          tar -xzf "/tmp/${archive}" -C /tmp actionlint
+          /tmp/actionlint -color
+
       - name: Install test tools
         run: |
           sudo apt-get update
