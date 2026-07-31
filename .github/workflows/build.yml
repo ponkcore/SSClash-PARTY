@@ -133,7 +133,9 @@ jobs:
         run: |
           set -eu
           cd "$SDK_DOWNLOAD"
-          curl -fsSLO "$SDK_URL_PATH/sha256sums"
+          curl -fsSLo sha256sums \
+            --retry 3 --retry-all-errors --connect-timeout 20 --max-time 900 \
+            "$SDK_URL_PATH/sha256sums"
           sdk_file="$(
             awk '$2 ~ /openwrt-sdk-.*Linux-x86_64\.tar\.zst$/ {
               sub(/^\*/, "", $2)
@@ -142,8 +144,20 @@ jobs:
           )"
           test -n "$sdk_file"
           test "$(printf '%s\n' "$sdk_file" | wc -l)" -eq 1
-          curl -fsSLO "$SDK_URL_PATH/$sdk_file"
-          grep -F " $sdk_file" sha256sums > sdk.sha256
+          curl -fsSLo "$sdk_file" \
+            --retry 3 --retry-all-errors --connect-timeout 20 --max-time 900 \
+            "$SDK_URL_PATH/$sdk_file"
+          awk -v expected="$sdk_file" '
+            {
+              name = $2
+              sub(/^\*/, "", name)
+              if (name == expected) {
+                print $1 "  " expected
+                found = 1
+              }
+            }
+            END { if (!found) exit 1 }
+          ' sha256sums > sdk.sha256
           sha256sum --check --strict sdk.sha256
           tar --zstd -xf "$sdk_file" -C "$SDK_HOME" --strip-components=1
 
