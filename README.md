@@ -1,11 +1,22 @@
-📖 Read this in other languages:
-- [Русский](README.ru.md)
+# SSClash PARTY
+
+> [!IMPORTANT]
+> SSClash PARTY is an independent downstream of
+> [zerolabnet/SSClash](https://github.com/zerolabnet/SSClash). It is not an
+> official ZeroChaos release. The downstream keeps the upstream package name
+> for safe upgrades and adds transactional complete-profile subscriptions.
+
+Project notes:
+
+- [PARTY downstream policy](PARTY.md)
+- [Managed full-profile subscriptions](docs/managed-full-profile.md)
+- [Upstream synchronization](docs/upstream-sync.md)
 
 <p align="center">
  <img src=".github/assets/images/logos/SSClash.png" width="200">
 </p>
 
-<h3 align="center">Here's the step-by-step process for installing and configuring SSClash on your OpenWrt router</h3>
+<h3 align="center">SSClash with guarded, automatically updated complete Mihomo profiles for OpenWrt</h3>
 
 # Setup Guide
 
@@ -22,13 +33,14 @@ hot-reloaded with post-apply health checks and automatic rollback. See
 trust boundary, LuCI workflow, fake-IP policy, recovery procedure, and
 architecture-specific package requirements.
 
-# Autoinstall script
+# Installation
 
-Installs or updates all dependencies, luci-app-ssclash and Mihomo core.
+Do not run the upstream SSClash autoinstall script over a PARTY installation:
+it installs upstream release packages and can replace downstream files.
 
-```bash
-wget --no-proxy -qO- https://github.com/zerolabnet/SSClash/raw/refs/heads/main/install-ssclash.sh | ash
-```
+Use a checksum-verified PARTY release artifact that exactly matches the
+OpenWrt release and package architecture. PARTY packages are
+architecture-specific because they include a compiled structural YAML merger.
 
 # Manual install
 
@@ -73,18 +85,27 @@ opkg install iptables-mod-tproxy
 
 ## Step 3: Download and Install `luci-app-ssclash` Package
 
-Download the SSClash package and install it.
+Download the exact PARTY package from the
+[release page](https://github.com/ponkcore/SSClash-PARTY/releases), along with
+its adjacent `.sha256` file.
 
-```bash
-# OpenWrt >= 25:
-curl -L https://github.com/zerolabnet/ssclash/releases/download/v4.7.0/luci-app-ssclash-4.7.0-r1.apk -o /tmp/luci-app-ssclash-4.7.0-r1.apk
-apk add --allow-untrusted /tmp/luci-app-ssclash-4.7.0-r1.apk
+The first PARTY preview provides packages for:
 
-# OpenWrt < 25:
-curl -L https://github.com/zerolabnet/ssclash/releases/download/v4.7.0/luci-app-ssclash_4.7.0-r1_all.ipk -o /tmp/luci-app-ssclash_4.7.0-r1_all.ipk
-opkg install /tmp/luci-app-ssclash_4.7.0-r1_all.ipk
+- OpenWrt 25.12.5 `mediatek/filogic`, `aarch64_cortex-a53`, including the
+  Cudy WBR3000UAX v1;
+- OpenWrt 25.12.5 `x86/64`, `x86_64`;
+- OpenWrt 24.10.8 `x86/64`, `x86_64`.
 
-rm /tmp/*.ipk /tmp/*.apk
+For the Cudy WBR3000UAX v1 on OpenWrt 25.12.5:
+
+```sh
+release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.1'
+artifact='luci-app-ssclash-4.7.0-r2-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
+
+curl -fL "$release_url/$artifact" -o "/tmp/$artifact"
+curl -fL "$release_url/$artifact.sha256" -o "/tmp/$artifact.sha256"
+(cd /tmp && sha256sum -c "$artifact.sha256")
+apk add --allow-untrusted "/tmp/$artifact"
 ```
 
 ## Step 4: Automatic Mihomo Kernel Management
