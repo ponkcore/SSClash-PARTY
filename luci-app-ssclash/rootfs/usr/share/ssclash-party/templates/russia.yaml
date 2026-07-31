@@ -1,0 +1,309 @@
+# SSClash PARTY routing template: Russia
+# This file intentionally contains no proxy nodes, subscription URLs, HWIDs,
+# controller credentials, or router-specific listeners.
+
+sniffer:
+  enable: true
+  override-destination: false
+  parse-pure-ip: true
+  skip-dst-address:
+    - 224.0.0.0/3
+    - 10.0.0.0/8
+    - 127.0.0.0/8
+    - 100.64.0.0/10
+    - 172.16.0.0/12
+    - 198.18.0.0/15
+    - 169.254.0.0/16
+    - 192.168.0.0/16
+    - 192.0.0.0/24
+    - 192.0.2.0/24
+    - 192.88.99.0/24
+    - 198.51.100.0/24
+    - 203.0.113.0/24
+    - fc00::/7
+    - ff00::/8
+    - fe80::/10
+    - ::/127
+  sniff:
+    HTTP:
+      ports:
+        - 80
+        - 8080-8880
+    TLS:
+      ports:
+        - 443
+        - 8443
+
+dns:
+  default-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  direct-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  enable: true
+  ipv6: false
+  nameserver:
+    - https://8.8.8.8/dns-query#PROXY
+  proxy-server-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+
+proxy-groups:
+  - name: "🛡️ VPN"
+    type: select
+    proxies:
+      - "⚡ Auto"
+    include-all: true
+  - name: "📺 YouTube"
+    type: select
+    proxies:
+      - "🛡️ VPN"
+  - name: "💬 Discord"
+    type: select
+    proxies:
+      - "🛡️ VPN"
+  - name: "🎮 Games"
+    type: select
+    proxies:
+      - DIRECT
+      - "🛡️ VPN"
+  - name: "⚡ Auto"
+    type: url-test
+    include-all: true
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 150
+  - name: PROXY
+    type: select
+    proxies:
+      - "🛡️ VPN"
+  - name: "🔓 Direct"
+    type: select
+    proxies:
+      - DIRECT
+  - name: "⛔ Block"
+    type: select
+    proxies:
+      - REJECT
+  - name: "⏭ Pass"
+    type: select
+    proxies:
+      - PASS
+
+rule-providers:
+  apple:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/apple.mrs
+  category-ads:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ads.mrs
+  category-ru:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/category-ru.mrs
+  direct-ips:
+    behavior: ipcidr
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/direct.mrs
+  epicgames:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/epicgames.mrs
+  escapefromtarkov:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/escapefromtarkov.mrs
+  faceit:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/faceit.mrs
+  games:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/roscomvpn/custom-category/release/mihomo/games.yaml
+  github:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/github.mrs
+  google-play:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/google-play.mrs
+  microsoft:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/microsoft.mrs
+  origin:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/origin.mrs
+  pinterest:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/pinterest.mrs
+  private-domains:
+    behavior: domain
+    format: mrs
+    interval: 2592000
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/private.mrs
+  private-ips:
+    behavior: ipcidr
+    format: mrs
+    interval: 2592000
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/private.mrs
+  riot:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/riot.mrs
+  ru-apps:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/roscomvpn/custom-category/release/mihomo/ru-apps.yaml
+  steam:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/steam.mrs
+  telegram:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/telegram.mrs
+  torrent-clients:
+    behavior: classical
+    format: yaml
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/legiz-ru/mihomo-rule-sets/main/other/torrent-clients.yaml
+  torrent-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/torrent.mrs
+  twitch:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch.mrs
+  twitch-ads:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch-ads.mrs
+  whitelist:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/whitelist.mrs
+  win-spy:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/win-spy.mrs
+  youtube:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/youtube.mrs
+
+rules:
+  - RULE-SET,private-ips,DIRECT,no-resolve
+  - IP-CIDR,::/0,REJECT-DROP,no-resolve
+  - AND,((NETWORK,UDP),(DST-PORT,443)),REJECT-DROP
+  - RULE-SET,private-domains,DIRECT
+  - RULE-SET,category-ads,REJECT-DROP
+  - RULE-SET,win-spy,REJECT-DROP
+  - RULE-SET,torrent-domains,DIRECT
+  - RULE-SET,google-play,PROXY
+  - RULE-SET,twitch-ads,PROXY
+  - "RULE-SET,youtube,📺 YouTube"
+  - RULE-SET,telegram,PROXY
+  - RULE-SET,github,PROXY
+  - "RULE-SET,epicgames,🎮 Games"
+  - "RULE-SET,origin,🎮 Games"
+  - "RULE-SET,riot,🎮 Games"
+  - "RULE-SET,escapefromtarkov,🎮 Games"
+  - "RULE-SET,steam,🎮 Games"
+  - "RULE-SET,faceit,🎮 Games"
+  - RULE-SET,twitch,DIRECT
+  - RULE-SET,microsoft,DIRECT
+  - RULE-SET,apple,DIRECT
+  - RULE-SET,pinterest,DIRECT
+  - RULE-SET,category-ru,DIRECT
+  - RULE-SET,whitelist,DIRECT
+  - RULE-SET,torrent-clients,DIRECT
+  - "PROCESS-NAME-REGEX,discord,💬 Discord"
+  - "PROCESS-NAME-REGEX,vesktop,💬 Discord"
+  - "RULE-SET,games,🎮 Games"
+  - RULE-SET,ru-apps,DIRECT
+  - RULE-SET,direct-ips,DIRECT
+  - MATCH,PROXY

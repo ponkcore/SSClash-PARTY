@@ -1,0 +1,11 @@
+mode: rule
+proxies:
+  - name: test-node
+    type: direct
+proxy-groups:
+  - name: REMOTE
+    type: select
+    proxies:
+      - test-node
+rules:
+  - MATCH,REMOTE

@@ -1,0 +1,13 @@
+mode: rule
+log-level: error
+proxy-providers:
+  PARTY:
+    type: file
+    path: ./links.txt
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - PARTY
+rules:
+  - MATCH,PROXY

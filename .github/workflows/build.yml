@@ -56,8 +56,17 @@ jobs:
       - name: Check Go formatting and tests
         working-directory: luci-app-ssclash/profile-merge
         run: |
-          test -z "$(gofmt -l main.go main_test.go)"
+          test -z "$(gofmt -l main.go main_test.go source_modes.go source_modes_test.go)"
           go test -mod=vendor ./...
+          go test -race -mod=vendor ./...
+          go vet -mod=vendor ./...
+
+      - name: Lint Go sources
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.12.2
+          working-directory: luci-app-ssclash/profile-merge
+          args: --modules-download-mode=vendor
 
       - name: Check OpenWrt shell and LuCI sources
         run: |
@@ -67,7 +76,16 @@ jobs:
             luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
           bash -n scripts/write-minimal-sdk-config.sh
-          shellcheck -s bash scripts/write-minimal-sdk-config.sh
+          bash -n scripts/check-package-scripts.sh
+          bash -n tests/profile-sync/fake-command
+          bash -n tests/profile-sync/test-profile-sync.sh
+          shellcheck -s bash \
+            scripts/write-minimal-sdk-config.sh \
+            scripts/check-package-scripts.sh \
+            tests/profile-sync/fake-command \
+            tests/profile-sync/test-profile-sync.sh
+          scripts/check-package-scripts.sh
+          tests/profile-sync/test-profile-sync.sh
           node --check \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js
           jq empty \
@@ -238,13 +256,28 @@ jobs:
           merger="$inspect_root/usr/bin/ssclash-profile-merge"
           helper="$inspect_root/usr/libexec/ssclash-profile-sync"
           profile_config="$inspect_root/etc/config/ssclash_profile"
+          links_file="$inspect_root/etc/ssclash-party/links.txt"
           active_config="$inspect_root/opt/clash/config.yaml"
+          template_catalog="$inspect_root/usr/share/ssclash-party/templates/catalog.json"
+          russia_template="$inspect_root/usr/share/ssclash-party/templates/russia.yaml"
+          party_version="$inspect_root/usr/share/ssclash-party/VERSION"
           test -x "$merger"
           test -x "$helper"
           test "$(stat -c '%a' "$profile_config")" = 600
+          test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
+          test "$(cat "$party_version")" = 4.7.0-party.2
+          jq -e \
+            '.schema_version == 1 and any(.templates[]; .id == "russia")' \
+            "$template_catalog" >/dev/null
+          grep -q '^proxy-groups:' "$russia_template"
+          grep -q '^rules:' "$russia_template"
+          grep -q "option source_mode 'subscription'" "$profile_config"
+          grep -q "option rules_mode 'auto'" "$profile_config"
           strings "$merger" > "$inspect_root/merger.strings"
           grep -q 'runtime_restart_required' "$inspect_root/merger.strings"
+          grep -q 'source_format' "$inspect_root/merger.strings"
+          grep -q 'managed-sources' "$inspect_root/merger.strings"
           grep -q 'restart_required' "$helper"
 
           file_output="$(file "$merger")"
@@ -305,7 +338,8 @@ jobs:
             echo
             echo "This is an independent downstream build, not an official zerolabnet release."
             echo
-            echo "It adds guarded complete-profile synchronization, validation, health checks, and rollback."
+            echo "It adds three configuration sources: adaptive subscriptions, local proxy links with PARTY templates, and manual YAML."
+            echo "Managed candidates use Mihomo validation, transactional activation, health checks, and rollback."
             echo
             echo "Every package is architecture-specific because it includes the profile merger."
             echo "Install only the artifact matching the OpenWrt version and package architecture."

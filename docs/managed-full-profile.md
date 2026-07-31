@@ -1,5 +1,10 @@
 # Managed full-profile subscriptions
 
+> This document describes the complete-profile branch of PARTY's broader
+> source system. For source discovery, nodes-only subscriptions, Base64/URI
+> fallback, proxy-link input, templates, and Manual YAML mode, start with
+> [Configuration sources](configuration-sources.md).
+
 SSClash can consume a complete Mihomo YAML profile from an HTTPS
 subscription. This workflow is intended for providers and control panels,
 including Remnawave, that generate nodes, proxy groups, rule providers, and
@@ -56,22 +61,24 @@ managed directory.
 ## LuCI workflow
 
 Open **Services → SSClash → Configuration** and use the
-**Managed Full Profile** card:
+**Configuration Source** card:
 
-1. Paste the complete subscription URL.
-2. Choose an update interval. The minimum is 300 seconds; 3,600 seconds is
+1. Select **Subscription** and paste the HTTPS URL.
+2. Choose **Automatic** to retain a complete remote policy, or force the
+   selected PARTY template to import only proxies.
+3. Choose an update interval. The minimum is 300 seconds; 3,600 seconds is
    one hour.
-3. Enable automatic updates if desired.
-4. Select **Sync now** to download and validate without starting a stopped
+4. Enable automatic updates if desired.
+5. Select **Sync now** to download and validate without starting a stopped
    service.
-5. Select **Sync & guarded start** for the first activation.
+6. Select **Sync & guarded start** for the first activation.
 
 The ordinary **Start Service** button also uses the guarded managed start when
-a subscription URL is present.
+a managed source is saved.
 
-The YAML editor remains available for inspection and emergency changes.
-Manual edits are temporary while managed synchronization is enabled and will
-be replaced by the next successful synchronization.
+The YAML editor is a read-only active-profile preview in managed modes. Select
+**Manual YAML** before editing it. Merely changing source settings never
+replaces the active file.
 
 ## Update transaction
 
@@ -79,20 +86,24 @@ Each manual or scheduled synchronization performs the following transaction:
 
 1. Acquire an operation lock.
 2. Read the URL from the mode-`0600` UCI file.
-3. Require a direct HTTPS response and reject redirects.
+3. Allow at most three HTTPS-to-HTTPS redirects and reject every other URL
+   scheme.
 4. Apply size, timeout, and retry limits.
-5. Send the configured Mihomo user agent and optional Remnawave HWID headers.
-6. Parse the complete YAML document structurally.
-7. Remove unsafe remote runtime fields and apply the local router overlay.
-8. Confine all remote provider cache paths.
-9. Test the candidate with `mihomo -t`.
-10. Leave the active file untouched when the generated output is unchanged.
-11. Otherwise, back up and atomically replace the active configuration.
-12. Hot-reload a running core through its authenticated controller API.
+5. Try the installed Mihomo user agent and a neutral PARTY fallback without
+   HWID headers.
+6. Retry with a stable HWID only when the server explicitly requires it.
+7. Classify the result as complete YAML, nodes-only YAML, URI list, or
+   unsupported input.
+8. Remove unsafe remote runtime fields and apply the local router overlay.
+9. Confine all remote provider cache paths.
+10. Test the candidate with `mihomo -t`.
+11. Leave the active file untouched when the generated output is unchanged.
+12. Otherwise, back up and atomically replace the active configuration.
+13. Hot-reload a running core through its authenticated controller API.
     If protected listener, controller, TProxy, or DNS interception settings
     changed, perform a guarded restart instead.
-13. Check the controller, router DNS, and a configured proxy group.
-14. Restore and reload the previous profile if any check fails.
+14. Check the controller, router DNS, and a configured proxy group.
+15. Restore and reload the previous profile if any check fails.
 
 At most five dated configuration backups are retained under:
 
@@ -165,11 +176,14 @@ The package installs this file with mode `0600`.
 
 | Option | Default | Purpose |
 |---|---|---|
+| `source_mode` | `subscription` | `subscription`, `links`, or `manual` |
+| `rules_mode` | `auto` | Preserve complete remote policy or force a template |
+| `template_id` | `russia` | Trusted PARTY template catalog ID |
 | `enabled` | `0` | Run the scheduled updater |
-| `url` | empty | Complete HTTPS Mihomo profile URL |
+| `url` | empty | Adaptive HTTPS subscription URL |
 | `interval` | `3600` | Update interval in seconds |
-| `user_agent` | `mihomo/1.19.29` | Subscription request user agent |
-| `hwid` | empty | Optional Remnawave `x-hwid` value |
+| `user_agent` | `auto` | Installed Mihomo user agent or explicit override |
+| `hwid` | empty | Stable Remnawave `x-hwid`, generated only when required |
 | `device_os` | `OpenWrt` | Optional Remnawave device OS header |
 | `device_model` | automatic | Optional Remnawave device model header |
 | `lan_interface` | `lan` | Logical interface used to derive the controller |

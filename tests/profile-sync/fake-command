@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${0##*/}"
+
+state_get() {
+    local key="$1"
+    awk -F= -v wanted="$key" '
+        $1 == wanted {
+            sub(/^[^=]*=/, "")
+            print
+            found = 1
+            exit
+        }
+        END { if (!found) exit 1 }
+    ' "${FAKE_UCI_STATE:?}"
+}
+
+state_set() {
+    local key="$1"
+    local value="$2"
+    local temporary="${FAKE_UCI_STATE}.tmp.$$"
+    awk -F= -v wanted="$key" -v replacement="$value" '
+        $1 == wanted {
+            print wanted "=" replacement
+            found = 1
+            next
+        }
+        { print }
+        END { if (!found) print wanted "=" replacement }
+    ' "${FAKE_UCI_STATE:?}" > "$temporary"
+    mv "$temporary" "$FAKE_UCI_STATE"
+}
+
+case "$command_name" in
+uci)
+    while [[ "${1:-}" == -* ]]; do shift; done
+    operation="${1:-}"
+    shift || true
+    case "$operation" in
+    get)
+        state_get "${1:?}"
+        ;;
+    set)
+        assignment="${1:?}"
+        state_set "${assignment%%=*}" "${assignment#*=}"
+        ;;
+    commit)
+        ;;
+    *)
+        exit 2
+        ;;
+    esac
+    ;;
+
+jsonfilter)
+    input_file=
+    expression=
+    while (($#)); do
+        case "$1" in
+        -i)
+            input_file="$2"
+            shift 2
+            ;;
+        -e)
+            expression="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+        esac
+    done
+    case "$expression" in
+    @.*)
+        jq -r ".${expression#@.} // empty" "$input_file"
+        ;;
+    *)
+        exit 2
+        ;;
+    esac
+    ;;
+
+curl)
+    output_file=
+    response_headers=
+    request_headers=
+    while (($#)); do
+        case "$1" in
+        -o)
+            output_file="$2"
+            shift 2
+            ;;
+        -D)
+            response_headers="$2"
+            shift 2
+            ;;
+        -H)
+            if [[ "$2" == @* ]]; then request_headers="${2#@}"; fi
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+        esac
+    done
+    [[ -n "$output_file" && -n "$response_headers" && -n "$request_headers" ]]
+
+    count=0
+    if [[ -s "${FAKE_CURL_COUNT:?}" ]]; then read -r count < "$FAKE_CURL_COUNT"; fi
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$FAKE_CURL_COUNT"
+
+    user_agent="$(awk -F': ' 'tolower($1) == "user-agent" { print $2; exit }' "$request_headers")"
+    has_hwid=false
+    grep -qi '^x-hwid:' "$request_headers" && has_hwid=true
+
+    printf 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n' > "$response_headers"
+    case "${FAKE_CURL_SCENARIO:?}" in
+    adaptive-links)
+        if [[ "$count" -eq 1 && "$user_agent" == mihomo/* && "$has_hwid" == false ]]; then
+            printf '<!doctype html><title>client landing page</title>\n' > "$output_file"
+        elif [[ "$count" -eq 2 && "$user_agent" == SSClash-PARTY/* && "$has_hwid" == false ]]; then
+            base64 "${FAKE_FIXTURE_DIR:?}/links.txt" > "$output_file"
+        else
+            exit 90
+        fi
+        ;;
+    hwid-full)
+        if [[ "$count" -le 2 && "$has_hwid" == false ]]; then
+            printf 'x-hwid-not-supported: true\r\n' >> "$response_headers"
+            printf 'HWID is required\n' > "$output_file"
+        elif [[ "$count" -eq 3 && "$user_agent" == mihomo/* && "$has_hwid" == true ]]; then
+            cp "${FAKE_FIXTURE_DIR:?}/full.yaml" "$output_file"
+        else
+            exit 91
+        fi
+        ;;
+    hwid-limit)
+        [[ "$count" -eq 1 && "$has_hwid" == false ]] || exit 94
+        printf 'x-hwid-limit: true\r\n' >> "$response_headers"
+        printf 'Device limit reached\n' > "$output_file"
+        ;;
+    source-changed)
+        [[ "$count" -eq 1 && "$has_hwid" == false ]] || exit 95
+        state_set ssclash_profile.main.source_mode manual
+        cp "${FAKE_FIXTURE_DIR:?}/full.yaml" "$output_file"
+        ;;
+    invalid)
+        [[ "$has_hwid" == false ]] || exit 92
+        printf '<!doctype html><title>unsupported response</title>\n' > "$output_file"
+        ;;
+    *)
+        exit 93
+        ;;
+    esac
+    printf '\r\n' >> "$response_headers"
+    printf '200'
+    ;;
+
+clash)
+    if [[ "${1:-}" == -v ]]; then
+        printf 'Mihomo Meta v1.19.29 linux amd64\n'
+        exit 0
+    fi
+    config_file=
+    while (($#)); do
+        if [[ "$1" == -f ]]; then
+            config_file="$2"
+            shift 2
+        else
+            shift
+        fi
+    done
+    [[ -s "$config_file" ]]
+    grep -q '^proxy-groups:' "$config_file"
+    grep -q '^rules:' "$config_file"
+    ;;
+
+clash-init)
+    case "${1:-}" in
+    status)
+        grep -qx 'running=1' "${FAKE_SERVICE_STATE:?}"
+        ;;
+    start)
+        sed -i 's/^running=.*/running=1/' "$FAKE_SERVICE_STATE"
+        ;;
+    stop)
+        sed -i 's/^running=.*/running=0/' "$FAKE_SERVICE_STATE"
+        ;;
+    enable)
+        sed -i 's/^enabled=.*/enabled=1/' "$FAKE_SERVICE_STATE"
+        ;;
+    disable)
+        sed -i 's/^enabled=.*/enabled=0/' "$FAKE_SERVICE_STATE"
+        ;;
+    *)
+        exit 2
+        ;;
+    esac
+    ;;
+
+clash-rules|logger|nslookup)
+    ;;
+
+*)
+    printf 'Unknown fake command: %s\n' "$command_name" >&2
+    exit 2
+    ;;
+esac
