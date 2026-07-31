@@ -15,6 +15,7 @@
                 "/sys/class/net": [ "list" ],
                 "/sys/class/net/*": [ "list", "read" ],
                 "/sys/class/net/*/address": [ "read" ],
+                "/tmp/ssclash-profile-sync/status.json": [ "read" ],
                 "/tmp/sysinfo/model": [ "read" ],
                 "/sbin/logread": [ "exec" ],
                 "/bin/ls": [ "exec" ],
@@ -28,8 +29,10 @@
             },
             "ubus": {
                 "file": [ "read", "stat", "exec" ],
-                "service": [ "list" ]
-            }
+                "service": [ "list" ],
+                "uci": [ "get" ]
+            },
+            "uci": [ "ssclash_profile" ]
         },
         "write": {
             "file": {
@@ -38,18 +41,24 @@
                 "/opt/clash/bin/clash": [ "write" ],
                 "/opt/clash/lst/*.txt": [ "write", "remove" ],
                 "/opt/clash/bin/clash-rules": [ "exec" ],
-                "/tmp/mihomo-*": [ "write", "remove" ],
+                "/opt/clash/.config.yaml.manual.*": [ "write", "remove" ],
+                "/tmp/ssclash-reload-auth.*": [ "write", "remove" ],
                 "/etc/init.d/clash": [ "exec" ],
+                "/etc/init.d/ssclash-profile-sync": [ "exec" ],
+                "/usr/libexec/ssclash-profile-sync": [ "exec" ],
                 "/usr/bin/curl": [ "exec" ],
                 "/bin/gzip": [ "exec" ],
                 "/bin/mv": [ "exec" ],
                 "/bin/chmod": [ "exec" ],
                 "/bin/rm": [ "exec" ],
-                "/bin/mkdir": [ "exec" ]
+                "/bin/mkdir": [ "exec" ],
+                "/bin/mktemp": [ "exec" ]
             },
             "ubus": {
-                "file": [ "write", "exec" ]
-            }
+                "file": [ "write", "exec" ],
+                "uci": [ "set", "commit" ]
+            },
+            "uci": [ "ssclash_profile" ]
         }
     }
 }
