@@ -82,6 +82,23 @@ Git tag:         v4.7.0-party.2
 OpenWrt package: luci-app-ssclash 4.7.0-r3
 ```
 
+The package-upgrade lifecycle correction is:
+
+```text
+Git tag:         v4.7.0-party.3
+OpenWrt package: luci-app-ssclash 4.7.0-r5
+```
+
+It accounts for OpenWrt APK stopping packaged init scripts before the new
+pre-upgrade script can observe their runtime state. Services enabled at boot
+are resumed, the subscription updater follows its UCI enable switch, and
+disabled services remain disabled after the legacy recovery boundary. PARTY.1
+and PARTY.2 get a one-time managed-subscription fallback because those package
+revisions could lose the Clash boot link during an upgrade. Package release r4
+was an internal live validation build and was never published; r5 also fixes
+first-install detection when OpenWrt starts the new init script before the
+custom post-upgrade migration runs.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;

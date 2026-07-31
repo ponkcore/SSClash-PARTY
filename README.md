@@ -112,8 +112,8 @@ Current PARTY preview releases provide packages for:
 For the Cudy WBR3000UAX v1 on OpenWrt 25.12.5:
 
 ```sh
-release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.2'
-artifact='luci-app-ssclash-4.7.0-r3-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
+release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.3'
+artifact='luci-app-ssclash-4.7.0-r5-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
 
 curl -fL "$release_url/$artifact" -o "/tmp/$artifact"
 curl -fL "$release_url/$artifact.sha256" -o "/tmp/$artifact.sha256"

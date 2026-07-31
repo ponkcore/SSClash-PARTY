@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=3
+PKG_RELEASE:=5
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -168,23 +168,32 @@ endef
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 mkdir -p /opt/clash 2>/dev/null || true
-[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml /opt/clash/.config.yaml.upgrade.bak
+HAD_CONFIG=0
+PREVIOUS_PARTY_VERSION=unknown
+if [ -f /opt/clash/config.yaml ]; then
+	cp -p /opt/clash/config.yaml /opt/clash/.config.yaml.upgrade.bak
+	HAD_CONFIG=1
+fi
+if [ -f /usr/share/ssclash-party/VERSION ]; then
+	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
+	case "$$detected_version" in
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3)
+			PREVIOUS_PARTY_VERSION="$$detected_version"
+			;;
+	esac
+fi
 [ -n "$$IPKG_INSTROOT" ] || {
 	STATE=/tmp/ssclash-party-upgrade.state
 	CLASH_ENABLED=0
 	CLASH_RUNNING=0
-	SYNC_ENABLED=0
-	SYNC_RUNNING=0
 	/etc/init.d/clash enabled >/dev/null 2>&1 && CLASH_ENABLED=1
 	/etc/init.d/clash status >/dev/null 2>&1 && CLASH_RUNNING=1
-	/etc/init.d/ssclash-profile-sync enabled >/dev/null 2>&1 && SYNC_ENABLED=1
-	/etc/init.d/ssclash-profile-sync status >/dev/null 2>&1 && SYNC_RUNNING=1
 	umask 077
 	{
+		echo "HAD_CONFIG=$$HAD_CONFIG"
+		echo "PREVIOUS_PARTY_VERSION=$$PREVIOUS_PARTY_VERSION"
 		echo "CLASH_ENABLED=$$CLASH_ENABLED"
 		echo "CLASH_RUNNING=$$CLASH_RUNNING"
-		echo "SYNC_ENABLED=$$SYNC_ENABLED"
-		echo "SYNC_RUNNING=$$SYNC_RUNNING"
 	} > "$$STATE"
 }
 exit 0
@@ -192,11 +201,14 @@ endef
 
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
+STATE=/tmp/ssclash-party-upgrade.state
+FIRST_INSTALL=1
+if [ "$${PKG_UPGRADE:-0}" = "1" ] || \
+	grep -qx 'HAD_CONFIG=1' "$$STATE" 2>/dev/null; then
+	FIRST_INSTALL=0
+fi
 if [ -f /opt/clash/.config.yaml.upgrade.bak ]; then
 	mv /opt/clash/.config.yaml.upgrade.bak /opt/clash/config.yaml
-	FIRST_INSTALL=0
-else
-	FIRST_INSTALL=1
 fi
 [ -n "$$IPKG_INSTROOT" ] || {
 	/etc/init.d/rpcd reload
@@ -219,10 +231,13 @@ fi
 		uci -q set ssclash_profile.main.rules_mode=auto
 	uci -q get ssclash_profile.main.template_id >/dev/null || \
 		uci -q set ssclash_profile.main.template_id=russia
+	uci -q get ssclash_profile.main.dns_mode >/dev/null || \
+		uci -q set ssclash_profile.main.dns_mode=preserve
 	if [ "$$(uci -q get ssclash_profile.main.user_agent)" = "mihomo/1.19.29" ]; then
 		uci -q set ssclash_profile.main.user_agent=auto
 	fi
 	uci -q commit ssclash_profile
+	rm -f /etc/config/ssclash_profile.apk-new
 
 	# On first install the default config.yaml is just a usable example
 	# (no real proxies configured). Prevent auto-start on next boot so the
@@ -245,40 +260,49 @@ fi
 		/etc/init.d/cron restart >/dev/null 2>&1 || true
 	fi
 
-	STATE=/tmp/ssclash-party-upgrade.state
-	if [ "$$FIRST_INSTALL" = "0" ] && [ -s "$$STATE" ]; then
-		if grep -qx 'CLASH_ENABLED=1' "$$STATE"; then
+	if [ "$$FIRST_INSTALL" = "0" ]; then
+		CLASH_SHOULD_ENABLE=0
+		CLASH_SHOULD_RUN=0
+		LEGACY_LIFECYCLE_RECOVERY=0
+		if [ -s "$$STATE" ]; then
+			grep -qx 'CLASH_ENABLED=1' "$$STATE" && CLASH_SHOULD_ENABLE=1
+			grep -qx 'CLASH_RUNNING=1' "$$STATE" && CLASH_SHOULD_RUN=1
+			grep -Eq '^PREVIOUS_PARTY_VERSION=4\.7\.0-party\.[12]$$' "$$STATE" && \
+				LEGACY_LIFECYCLE_RECOVERY=1
+		fi
+
+		# OpenWrt's generated APK pre-deinstall hook stops packaged services
+		# before the new pre-upgrade script can inspect their runtime state.
+		# An enabled service is therefore the durable indication that it must
+		# resume. PARTY.1 and PARTY.2 could lose that link during an upgrade,
+		# so their managed-subscription state is a one-time recovery fallback.
+		if [ "$$CLASH_SHOULD_ENABLE" = "1" ]; then
+			CLASH_SHOULD_RUN=1
+		fi
+		if [ "$$LEGACY_LIFECYCLE_RECOVERY" = "1" ] && \
+			[ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
+			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ] && \
+			[ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
+			CLASH_SHOULD_ENABLE=1
+			CLASH_SHOULD_RUN=1
+		fi
+
+		if [ "$$CLASH_SHOULD_ENABLE" = "1" ]; then
 			/etc/init.d/clash enable 2>/dev/null || true
 		else
 			/etc/init.d/clash disable 2>/dev/null || true
 		fi
-		if grep -qx 'CLASH_RUNNING=1' "$$STATE"; then
+		if [ "$$CLASH_SHOULD_RUN" = "1" ]; then
 			/etc/init.d/clash start 2>/dev/null || true
 		else
 			/etc/init.d/clash stop 2>/dev/null || true
 		fi
 
 		if [ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
-			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
-			if grep -qx 'SYNC_ENABLED=1' "$$STATE"; then
-				/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
-			else
-				/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
-			fi
-			if grep -qx 'SYNC_RUNNING=1' "$$STATE"; then
-				/etc/init.d/ssclash-profile-sync start 2>/dev/null || true
-			else
-				/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
-			fi
-		else
-			/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
-			/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
-		fi
-	elif [ "$$FIRST_INSTALL" = "0" ]; then
-		if [ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
-			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
+			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ] && \
+			[ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
 			/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
-			/etc/init.d/ssclash-profile-sync restart 2>/dev/null || true
+			/etc/init.d/ssclash-profile-sync start 2>/dev/null || true
 		else
 			/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
 			/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
