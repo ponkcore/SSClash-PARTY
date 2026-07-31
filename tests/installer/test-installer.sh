@@ -199,6 +199,15 @@ grep -Fq 'manifest|1|preview|v4.7.0-party.3|4.7.0-party.3' "$generated_manifest"
 [[ $(grep -c '^core|' "$generated_manifest") -eq 2 ]] || \
     fail 'generated manifest does not contain two Mihomo cores'
 
+bad_sidecar_dist="$temporary/bad-sidecar-dist"
+cp -R "$dist" "$bad_sidecar_dist"
+printf '%s\n' 'unexpected second record' >> \
+    "$bad_sidecar_dist/${packages[0]}.sha256"
+if "$generator" "$bad_sidecar_dist" v4.7.0-party.3 preview \
+    "$temporary/bad-sidecar.manifest" >/dev/null 2>&1; then
+    fail 'manifest generator accepted a multi-record package sidecar'
+fi
+
 install_root="$temporary/install-root"
 payload_dir="$temporary/payload"
 fake_bin="$temporary/fake-bin"

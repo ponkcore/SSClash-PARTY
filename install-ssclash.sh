@@ -595,6 +595,13 @@ parse_manifest() {
                 ;;
             core)
                 [ -z "$f6$f7$f8$f9$f10$f11$f12$f13$extra" ] || die 'Malformed core record in manifest'
+                case "$f2" in
+                    v[0-9]*) ;;
+                    *) die 'Invalid Mihomo release version in manifest' ;;
+                esac
+                case "$f2" in
+                    *[!A-Za-z0-9._-]*) die 'Unsafe Mihomo release version in manifest' ;;
+                esac
                 is_safe_asset_name "$f3" || die 'Unsafe Mihomo asset name in manifest'
                 is_sha256 "$f4" || die 'Invalid Mihomo SHA-256 in manifest'
                 is_uint "$f5" || die 'Invalid Mihomo compressed size in manifest'
@@ -643,9 +650,14 @@ find_conflicts() {
     CONFLICTS=''
     for conflict_package in \
         luci-app-openclash openclash \
+        luci-app-clashoo clashoo \
+        luci-app-fchomo fchomo \
         luci-app-nikki nikki \
         luci-app-podkop podkop \
+        luci-app-homeproxy homeproxy \
         luci-app-passwall luci-app-passwall2 \
+        luci-app-daed dae \
+        luci-app-ssr-plus luci-app-vssr luci-app-bypass \
         sing-box; do
         if package_is_installed "$conflict_package"; then
             CONFLICTS=$(append_line "$CONFLICTS" "$conflict_package")
@@ -837,7 +849,7 @@ create_recovery_archive() {
     capture_service_state "$recovery_stage/state/installer-state.txt"
 
     timestamp=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || date +%s)
-    RECOVERY_ARCHIVE="/tmp/ssclash-party-recovery-${timestamp}.tar.gz"
+    RECOVERY_ARCHIVE="/tmp/ssclash-party-recovery-${timestamp}-$$.tar.gz"
     tar -czf "$RECOVERY_ARCHIVE" -C "$recovery_stage" . || die 'Could not create the recovery archive'
     chmod 600 "$RECOVERY_ARCHIVE"
     recovery_hash=$(sha256_file "$RECOVERY_ARCHIVE")

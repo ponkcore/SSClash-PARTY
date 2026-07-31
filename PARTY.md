@@ -46,6 +46,11 @@ described as “ARM64” or “x86-64.” Match all of:
 Release artifacts are independent builds. Verify the adjacent SHA-256 file
 before installation.
 
+The supported automatic installer performs this matching locally and accepts
+only tuples published in a checksum-protected PARTY manifest. It never flashes
+firmware, removes a competing proxy stack, or starts an unconfigured first
+installation. See [Safe automatic installer](docs/installer.md).
+
 ## Branch contract
 
 - `main` is a clean fast-forward mirror of `upstream/main`.

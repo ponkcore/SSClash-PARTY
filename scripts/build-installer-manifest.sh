@@ -42,7 +42,7 @@ find_one_package() {
 verified_package_hash() {
     local package=$1
     local sidecar="${package}.sha256"
-    local package_dir package_name hash
+    local package_dir package_name hash declared_hash declared_name extra
 
     [[ -f "$sidecar" ]] || {
         echo "missing checksum sidecar: $sidecar" >&2
@@ -50,6 +50,20 @@ verified_package_hash() {
     }
     package_dir=$(dirname "$package")
     package_name=$(basename "$package")
+    read -r declared_hash declared_name extra < "$sidecar"
+    declared_name=${declared_name#\*}
+    [[ $declared_hash =~ ^[0-9a-f]{64}$ ]] || {
+        echo "invalid checksum in sidecar: $sidecar" >&2
+        exit 1
+    }
+    [[ $declared_name == "$package_name" && -z $extra ]] || {
+        echo "checksum sidecar does not name $package_name" >&2
+        exit 1
+    }
+    [[ $(wc -l < "$sidecar") -eq 1 ]] || {
+        echo "checksum sidecar must contain exactly one record: $sidecar" >&2
+        exit 1
+    }
     (
         cd "$package_dir"
         sha256sum --check --strict "${package_name}.sha256" >/dev/null
@@ -57,6 +71,10 @@ verified_package_hash() {
     hash=$(sha256sum "$package" | awk '{ print $1 }')
     [[ $hash =~ ^[0-9a-f]{64}$ ]] || {
         echo "invalid SHA-256 for $package_name" >&2
+        exit 1
+    }
+    [[ $hash == "$declared_hash" ]] || {
+        echo "checksum mismatch for $package_name" >&2
         exit 1
     }
     printf '%s' "$hash"

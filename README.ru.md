@@ -204,7 +204,7 @@ OpenWrt 25.12:
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.apk.sha256
 apk update
-apk add --allow-untrusted ./luci-app-ssclash*.apk
+apk add --allow-untrusted --force-reinstall ./luci-app-ssclash*.apk
 ```
 
 Для IPK на OpenWrt 24.10:
@@ -213,8 +213,11 @@ apk add --allow-untrusted ./luci-app-ssclash*.apk
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.ipk.sha256
 opkg update
-opkg install ./luci-app-ssclash*.ipk
+opkg install --force-reinstall ./luci-app-ssclash*.ipk
 ```
+
+Явная переустановка необходима, если upstream SSClash или предыдущая ревизия
+PARTY имеет ту же версию пакета OpenWrt, но другой downstream-код.
 
 Имя пакета остаётся `luci-app-ssclash`, поэтому PARTY обновляет существующую
 установку SSClash, а не создаёт два сервиса, конкурирующих за межсетевой экран,
