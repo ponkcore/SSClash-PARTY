@@ -1,254 +1,303 @@
-# SSClash PARTY
+<p align="right">
+  <strong>English</strong> · <a href="README.ru.md">Русский</a>
+</p>
+
+<h1 align="center">SSClash PARTY</h1>
+
+<h3 align="center">Mihomo for OpenWrt, made easy — and applied safely</h3>
+
+<p align="center">
+  <a href="https://github.com/ponkcore/SSClash-PARTY/actions/workflows/build.yml?query=branch%3Aparty"><img alt="Build and test" src="https://github.com/ponkcore/SSClash-PARTY/actions/workflows/build.yml/badge.svg?branch=party"></a>
+  <img alt="Status: Public Preview" src="https://img.shields.io/badge/status-public_preview-orange">
+  <a href="LICENSE"><img alt="License: GPL-2.0" src="https://img.shields.io/badge/license-GPL--2.0-blue.svg"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ponkcore/SSClash-PARTY/releases">Download the public preview</a>
+  · <a href="#quick-start">Quick start</a>
+  · <a href="#documentation">Documentation</a>
+</p>
+
+SSClash PARTY is a LuCI application for OpenWrt that turns an adaptive
+subscription, a list of proxy share links, or manually maintained YAML into a
+validated Mihomo configuration. It applies managed configurations with health
+checks and automatic rollback while keeping router-critical integration under
+local control.
 
 > [!IMPORTANT]
-> SSClash PARTY is an independent downstream of
-> [zerolabnet/SSClash](https://github.com/zerolabnet/SSClash). It is not an
-> official ZeroChaos release. The downstream keeps the upstream package name
-> for safe upgrades and adds transactional configuration sources.
+> PARTY is currently a public preview. Install only a package that exactly
+> matches your OpenWrt release, target, and package architecture, and keep a
+> current router backup.
 
-Project notes:
+## Why PARTY
 
-- [PARTY downstream policy](PARTY.md)
-- [Configuration sources](docs/configuration-sources.md)
-- [Managed full-profile subscriptions](docs/managed-full-profile.md)
-- [Upstream synchronization](docs/upstream-sync.md)
+Proxy providers do not all return the same kind of subscription. One URL may
+produce a complete Mihomo policy, a nodes-only YAML document, plaintext share
+links, or a Base64-encoded URI list depending on its client detection. A valid
+remote profile may also contain settings that are unsafe to adopt blindly on a
+router.
+
+PARTY handles that boundary in LuCI:
+
+- it discovers and classifies the source instead of assuming one response
+  format;
+- it can retain a complete provider policy or combine imported proxies with a
+  trusted local template;
+- it protects the controller, DNS, TProxy, routing, and provider-cache
+  settings that belong to the router;
+- it validates the exact candidate with the installed Mihomo core before
+  activation;
+- it keeps the last-known-good profile when a download, validation, reload, or
+  health check fails.
+
+## Choose your configuration source
+
+Open **Services → SSClash → Configuration** and choose one of three mutually
+exclusive sources.
+
+| Source | What you provide | Routing policy | Scheduled updates |
+|---|---|---|---|
+| **Subscription** | One HTTPS subscription URL | Keep a complete remote policy automatically, or always apply the selected PARTY template | Yes |
+| **Proxy links** | A newline-separated list of Mihomo-compatible share links | Selected PARTY template | Not needed; the source is local |
+| **Manual YAML** | A complete Mihomo configuration | Fully controlled by the user | No |
+
+### Adaptive subscription
+
+PARTY requests the subscription with the installed Mihomo identity and a
+neutral PARTY fallback. It starts without an HWID and adds stable
+Remnawave-compatible device headers only if the server explicitly requires
+them.
+
+Supported responses are classified as:
+
+- complete Mihomo YAML with proxies, groups, rule providers, and ordered
+  rules;
+- nodes-only Mihomo YAML;
+- plaintext proxy URIs;
+- an outer Base64-encoded URI list.
+
+In **Automatic** policy mode, a complete remote policy stays provider-managed,
+so later group and rule changes can arrive with the subscription. Nodes-only
+and URI responses use the selected PARTY template. Select **Always use the
+selected PARTY template** to import only proxies even when the provider sends
+a complete policy.
+
+### Proxy share links
+
+Paste individual rows or a newline-separated list of VLESS, VMess,
+Shadowsocks, Trojan, Hysteria/Hysteria2, TUIC, or other URI formats understood
+by the installed Mihomo core. PARTY normalizes and deduplicates the list, then
+attaches it to the selected routing template. Input is bounded by safety size
+limits, but there is no fixed UI row count.
+
+### Manual YAML
+
+Use the built-in YAML editor when you want the original fully manual workflow.
+The editor is authoritative in this mode; PARTY does not regenerate the file
+or schedule subscription updates.
+
+## Safe by construction
+
+Every managed apply follows the same transaction:
 
 <p align="center">
- <img src=".github/assets/images/logos/SSClash.png" width="200">
+  <strong>Fetch or read</strong> → <strong>Classify</strong> → <strong>Merge protected settings</strong> → <strong>Test with Mihomo</strong> → <strong>Apply and health-check</strong>
 </p>
 
-<h3 align="center">SSClash with guarded subscriptions, proxy-link templates, and manual Mihomo YAML for OpenWrt</h3>
+PARTY acquires an operation lock, builds the candidate, applies its local
+safety overlay, and runs Mihomo's native configuration test. A changed profile
+is installed atomically. Policy-only changes use an authenticated hot reload;
+protected runtime changes use a guarded restart. Controller, router DNS, and a
+real proxy path are checked after activation. If any step fails, PARTY restores
+the previous profile.
 
-# Setup Guide
+The scheduled updater runs only in Subscription mode. It never starts a Clash
+service that the operator deliberately stopped.
 
-## Configuration sources
+## What PARTY includes
 
-The Configuration page supports three source modes:
+| Capability | What it means |
+|---|---|
+| Adaptive source discovery | Complete YAML, nodes-only YAML, plaintext URIs, and Base64 URI lists can use the same subscription field |
+| Optional provider policy | Preserve provider-managed groups and rules, or force a trusted PARTY template |
+| Guarded activation | Mihomo validation, atomic replacement, post-apply health checks, and rollback |
+| Router-owned safety overlay | Authenticated controller, local dashboard, DNS policy, TProxy integration, routing-loop prevention, and confined provider caches stay protected |
+| Remnawave compatibility | Client negotiation and optional stable HWID headers without creating new identities on device-limit errors |
+| LuCI workflow | Source selection, status, logs, local rulesets, service control, Mihomo management, and authenticated Zashboard access |
+| Template catalog | The initial **Russia** policy template contains public rule providers and no proxy credentials or router secrets |
 
-- an adaptive HTTPS subscription that accepts complete Mihomo YAML,
-  nodes-only YAML, plaintext proxy URIs, or Base64 URI lists;
-- any number of local VLESS, Shadowsocks, Hysteria2, Trojan, VMess, and other
-  Mihomo-compatible share links combined with a PARTY routing template;
-- a complete manually maintained YAML, matching the original SSClash editor
-  workflow.
+## Supported packages
 
-Subscription users can preserve a complete provider policy or force the
-selected PARTY template. The initial template is **Russia**; more catalog
-entries can be added without changing the source workflow. Router-critical
-TProxy, DNS, and controller settings remain protected locally in both managed
-modes.
+The current public preview,
+[`v4.7.0-party.3`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.3),
+publishes the following architecture-specific packages:
 
-Candidates are parsed, tested with Mihomo, installed atomically, and
-hot-reloaded with post-apply health checks and automatic rollback. See
-[Configuration sources](docs/configuration-sources.md) for the complete user
-and compatibility contract, and
-[Managed full-profile subscriptions](docs/managed-full-profile.md) for the
-trust boundary, LuCI workflow, fake-IP policy, recovery procedure, and
-architecture-specific package requirements.
+| OpenWrt release | Target | Package architecture | Format | Validation level |
+|---|---|---|---|---|
+| 25.12.5 | `mediatek/filogic` | `aarch64_cortex-a53` | APK | CI-built and live-tested on Cudy WBR3000UAX v1 |
+| 25.12.5 | `x86/64` | `x86_64` | APK | CI-built and package-inspected |
+| 24.10.8 | `x86/64` | `x86_64` | IPK | CI-built and package-inspected |
 
-# Installation
+An “ARM64” or “x86-64” CPU description alone is not enough. Match the exact
+OpenWrt release line, target, subtarget, `DISTRIB_ARCH`, and package format.
+This table describes PARTY packages, not firmware images; PARTY never flashes
+your router.
 
-Do not run the upstream SSClash autoinstall script over a PARTY installation:
-it installs upstream release packages and can replace downstream files.
+## Quick start
 
-Use a checksum-verified PARTY release artifact that exactly matches the
-OpenWrt release and package architecture. PARTY packages are
-architecture-specific because they include a compiled structural YAML merger.
+### 1. Identify the router build
 
-# Manual install
-
-## Step 1: Update Package List
-
-Update the package list to ensure you have the latest available versions.
-
-For **OpenWrt >= 25** (apk):
-
-```bash
-apk update
-```
-
-For **OpenWrt < 25** (opkg):
-
-```bash
-opkg update
-```
-
-## Step 2: Install Required Packages
-
-In general, package managers resolve dependencies automatically when you install from a package repository. In this guide, we use manual installation from GitHub Releases, and required dependencies are:
-
-- `coreutils-base64` – for scripts that use Base64;
-- `kmod-tun` – for TUN mode;
-- the appropriate transparent proxy module depending on your firewall stack:
-  - `kmod-nft-tproxy` for **firewall4 / nftables**;
-  - `iptables-mod-tproxy` for **firewall3 / iptables**.
-
-Only if you are installing packages manually (`.apk`/`.ipk`) or building a custom image and dependencies are missing, you can install the transparent proxy modules manually:
-
-```bash
-# For nftables (firewall4) on OpenWrt >= 25:
-apk add kmod-nft-tproxy
-
-# For nftables (firewall4) on older OpenWrt:
-opkg install kmod-nft-tproxy
-
-# For iptables (firewall3, OpenWrt < 22.03.x):
-opkg install iptables-mod-tproxy
-```
-
-## Step 3: Download and Install `luci-app-ssclash` Package
-
-Download the exact PARTY package from the
-[release page](https://github.com/ponkcore/SSClash-PARTY/releases), along with
-its adjacent `.sha256` file.
-
-Current PARTY preview releases provide packages for:
-
-- OpenWrt 25.12.5 `mediatek/filogic`, `aarch64_cortex-a53`, including the
-  Cudy WBR3000UAX v1;
-- OpenWrt 25.12.5 `x86/64`, `x86_64`;
-- OpenWrt 24.10.8 `x86/64`, `x86_64`.
-
-For the Cudy WBR3000UAX v1 on OpenWrt 25.12.5:
+Run this on the OpenWrt router:
 
 ```sh
-release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.3'
-artifact='luci-app-ssclash-4.7.0-r5-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
-
-curl -fL "$release_url/$artifact" -o "/tmp/$artifact"
-curl -fL "$release_url/$artifact.sha256" -o "/tmp/$artifact.sha256"
-(cd /tmp && sha256sum -c "$artifact.sha256")
-apk add --allow-untrusted "/tmp/$artifact"
+. /etc/openwrt_release
+printf 'Release: %s\nTarget: %s\nArchitecture: %s\n' \
+  "$DISTRIB_RELEASE" "$DISTRIB_TARGET" "$DISTRIB_ARCH"
 ```
 
-## Step 4: Automatic Mihomo Kernel Management
+Choose an artifact from
+[GitHub Releases](https://github.com/ponkcore/SSClash-PARTY/releases) only when
+all values match its release description.
 
-Go to **Settings** → **Mihomo Kernel Management** and click **Download Latest Kernel**. The system will:
+### 2. Verify and install the package
 
-- Automatically detect your router's architecture
-- Download the latest compatible Mihomo kernel
-- Install and configure it properly
-- Show kernel status and version information
+Download one package and its adjacent `.sha256` file to `/tmp` on the router.
+For OpenWrt 25.12 APK packages:
 
-**Important:** Restart the Clash service after kernel installation.
-
-### Manual Kernel Installation (Optional)
-
-If you prefer manual installation, navigate to the `bin` directory and download the Clash.Meta Kernel:
-
-```bash
-cd /opt/clash/bin
+```sh
+cd /tmp
+sha256sum -c ./luci-app-ssclash*.apk.sha256
+apk update
+apk add --allow-untrusted ./luci-app-ssclash*.apk
 ```
 
-For **amd64** architecture:
+For OpenWrt 24.10 IPK packages:
 
-```bash
-curl -L https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-amd64-compatible-v1.19.27.gz -o clash.gz
+```sh
+cd /tmp
+sha256sum -c ./luci-app-ssclash*.ipk.sha256
+opkg update
+opkg install ./luci-app-ssclash*.ipk
 ```
 
-For **arm64** architecture:
+> [!WARNING]
+> Do not run the upstream SSClash autoinstall script over PARTY. It installs
+> upstream release packages and can replace downstream files.
 
-```bash
-curl -L https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-arm64-v1.19.27.gz -o clash.gz
-```
+The package name remains `luci-app-ssclash`, so PARTY upgrades an existing
+SSClash installation instead of creating two services that compete for the
+same firewall, DNS, controller, and `/opt/clash` paths.
 
-For **mipsel_24kc** architecture:
+### 3. Install Mihomo
 
-```bash
-curl -L https://github.com/MetaCubeX/mihomo/releases/download/v1.19.27/mihomo-linux-mipsle-softfloat-v1.19.27.gz -o clash.gz
-```
+Open **Services → SSClash → Settings → Mihomo Kernel Management**, download a
+compatible core, and restart the service after installation.
 
-Need a different architecture? Visit the [MetaCubeX Release Page](https://github.com/MetaCubeX/mihomo/releases) and choose the one that matches your device.
+### 4. Apply a configuration
 
-Decompress and make executable:
+Open **Services → SSClash → Configuration**:
 
-```bash
-gunzip clash.gz
-chmod +x clash
-```
+1. select Subscription, Proxy links, or Manual YAML;
+2. enter the selected source and routing-policy settings;
+3. use **Apply now** to prepare a stopped service, or **Apply & guarded start**
+   for the first activation;
+4. inspect the non-secret status summary and open Zashboard with **Open
+   Dashboard**.
 
-## Step 5: Configure Interface Processing Mode
+Saving source settings alone never replaces the active profile.
 
-SSClash offers two interface processing modes:
+## Technical trust boundary
 
-### Exclude Mode (Universal approach) - **Recommended for most users**
+In managed Subscription and Proxy-links modes, PARTY deliberately separates
+policy data from OpenWrt integration.
 
-- **Default mode** that processes traffic from ALL interfaces except selected ones
-- Automatically detects and excludes WAN interface
-- Simple to configure - just select interfaces to bypass proxy
-- Best for typical home router setups
+| Subscription or template may own | PARTY keeps under local control |
+|---|---|
+| Proxy nodes and credentials | Routing mode, transparent listener, and routing mark |
+| Proxy groups and membership | Private authenticated controller and packaged dashboard path |
+| HTTP and inline proxy providers | Loopback DNS listener and selected DNS interception mode |
+| HTTP and inline rule providers | Disabled TUN, IPv6, process matching, and client listeners |
+| Rules, rule order, and rule targets | Provider-cache confinement and rejection of arbitrary local file providers |
+| Safe general Mihomo policy fields | Validation, activation, health checks, backups, and rollback |
 
-### Explicit Mode (Precise control) - **For advanced users**
+A subscription cannot silently enable fake-IP. Fake-IP is supported only after
+a deliberate local migration establishes and tests a compatible baseline.
+Manual YAML mode remains fully user-controlled.
 
-- Processes traffic ONLY from selected interfaces
-- More secure but requires manual configuration
-- Automatically detects LAN bridge when enabled
-- Ideal for complex network setups requiring precise control
+## Public preview limitations
 
-### Additional Settings:
+- One subscription URL is supported per configuration.
+- Russia is the only packaged routing template.
+- Proxy links are local input and do not have a scheduled downloader.
+- Managed source input is limited to 5 MiB, with additional per-line limits.
+- Package availability is limited to the release matrix above.
+- Share-link protocol support follows the installed Mihomo version.
 
-- **Block QUIC traffic**: Blocks UDP port 443 to improve proxy effectiveness for services like YouTube
-- **Store rules and proxy providers in RAM**: rulesets and proxy-providers directories are placed on tmpfs to extend the lifespan of the NAND chip
-- **Add HWID headers to subscriptions**: Automatically adds HWID headers to proxy-providers (Remnawave compatibility)
+## Frequently asked questions
 
-<p align="center">
- <img src=".github/assets/images/screenshots/scr-01.png" width="100%">
-</p>
+### Will subscription groups and rules update automatically?
 
-## Step 6: Clash Configuration Management
+Yes, when the subscription returns a structurally complete profile and
+**Automatic** policy is selected. If you force a PARTY template, only remote
+proxies and proxy providers are imported.
 
-Edit your Clash configuration with the built-in editor featuring:
+### Why does Zashboard show `GLOBAL` when it is absent from my YAML?
 
-- **Syntax highlighting** for YAML files
-- **Live service control** (Start/Stop/Restart)
-- **Service status indicator**
+`GLOBAL` is a built-in Mihomo controller selector. PARTY forces rule mode for
+managed profiles, so ordinary traffic follows the active rule graph. Zashboard
+can hide it with **Display GLOBAL by mode**.
 
-<p align="center">
- <img src=".github/assets/images/screenshots/scr-02.png" width="100%">
-</p>
+### Why does the controller URL return HTTP 401?
 
-## Step 7: Local Rulesets Management
+The bare `http://ROUTER_IP:9090/` endpoint is the authenticated Mihomo API, not
+the dashboard landing page. Use **Open Dashboard** in LuCI; it opens the
+packaged Zashboard with protected fragment-based connection parameters.
 
-Create and manage local rule files for use with `rule-providers`:
+### Can a subscription switch my LAN to fake-IP?
 
-- **Create custom rule lists** with validation
-- **Organized file management** with collapsible sections
+No. A remote profile cannot silently change the protected DNS model. A tested
+local fake-IP baseline can be adopted deliberately and then preserved by
+managed updates.
 
-<p align="center">
- <img src=".github/assets/images/screenshots/scr-03.png" width="100%">
-</p>
+### Is PARTY limited to Cudy routers?
 
-## Step 8: Real-time Log Monitoring
+No. PARTY is an OpenWrt package. Cudy WBR3000UAX v1 is the current live-tested
+device; other targets are supported only where an exact release artifact is
+published.
 
-Monitor Clash activity with the integrated log viewer:
+### Why are the packages architecture-specific?
 
-- **Real-time log streaming** with automatic updates
-- **Filtered display** showing only Clash-related entries
-- **Color-coded log levels** and daemon identification
-- **Auto-scroll** to latest entries
+PARTY includes a compiled Go profile merger. The router's package architecture
+must therefore match the artifact exactly.
 
-<p align="center">
- <img src=".github/assets/images/screenshots/scr-04.png" width="100%">
-</p>
+## Documentation
 
-## Step 9: Dashboard Access
+| Document | Purpose |
+|---|---|
+| [Configuration sources](docs/configuration-sources.md) | Complete user contract for Subscription, Proxy links, Manual YAML, templates, storage, and rollback |
+| [Managed full-profile subscriptions](docs/managed-full-profile.md) | Trust boundary, guarded start, DNS modes, dashboard behavior, UCI settings, and recovery |
+| [PARTY downstream policy](PARTY.md) | Compatibility, branch, release, privacy, and upstream relationship contracts |
+| [Upstream synchronization](docs/upstream-sync.md) | Maintainer workflow for reviewing and integrating upstream changes |
 
-Access the Clash dashboard directly from the LuCI interface with automatic configuration detection.
+## Support and responsible reports
 
-<p align="center">
- <img src=".github/assets/images/screenshots/scr-05.png" width="100%">
-</p>
+Use [GitHub Issues](https://github.com/ponkcore/SSClash-PARTY/issues) for PARTY
+bugs and feature requests. Include the PARTY version, OpenWrt release and
+target, `DISTRIB_ARCH`, Mihomo version, selected source mode, reproduction
+steps, and sanitized logs or status output.
 
-# Remove Clash
+Never publish subscription URLs, raw generated YAML, proxy credentials,
+controller secrets, HWIDs, router passwords or keys, public IP addresses, or
+configuration backups.
 
-To remove Clash completely:
+## Lineage and license
 
-```bash
-# OpenWrt >= 25:
-apk del luci-app-ssclash
+SSClash PARTY is an independent downstream of
+[`zerolabnet/SSClash`](https://github.com/zerolabnet/SSClash). It is not an
+official ZeroChaos release. PARTY preserves the original copyright notices,
+upstream attribution, package compatibility, and
+[GPL-2.0-only license](LICENSE).
 
-# OpenWrt < 25:
-opkg remove luci-app-ssclash
-
-rm -rf /opt/clash
-```
+General fixes should be proposed upstream when possible. Reproduce and report
+PARTY-specific source, packaging, profile-sync, or activation problems in this
+repository first.
