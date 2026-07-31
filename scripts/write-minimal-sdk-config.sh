@@ -16,7 +16,9 @@ EOF
 	exit 2
 }
 
-[ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
+	usage
+fi
 
 sdk_dir="${1%/}"
 target_device_symbol="${2:-}"
