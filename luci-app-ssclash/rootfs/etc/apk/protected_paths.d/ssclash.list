@@ -3,4 +3,7 @@
 +opt/clash/lst/*
 +opt/clash/profile-backups
 +opt/clash/profile-backups/*
++opt/clash/managed-sources
++opt/clash/managed-sources/*
 +etc/config/ssclash_profile
++etc/ssclash-party/links.txt

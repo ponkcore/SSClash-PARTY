@@ -1,0 +1,3 @@
+vless://00000000-0000-0000-0000-000000000000@example.invalid:443?encryption=none#test-vless
+hysteria2://placeholder@example.invalid:443?sni=example.invalid#test-hysteria2
+this-line-is-not-a-proxy-uri

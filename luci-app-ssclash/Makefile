@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -67,8 +67,8 @@ endchoice
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI interface for SSClash PARTY, including transactional full-profile
-	subscription synchronization for Mihomo.
+	LuCI interface for SSClash PARTY, including adaptive subscriptions,
+	proxy-link templates, manual YAML, and transactional Mihomo activation.
 endef
 
 define Build/Prepare
@@ -98,6 +98,7 @@ endef
 define Package/$(PKG_NAME)/conffiles
 /opt/clash/config.yaml
 /etc/config/ssclash_profile
+/etc/ssclash-party/links.txt
 endef
 
 define Package/$(PKG_NAME)/install
@@ -107,6 +108,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./rootfs/etc/config/ssclash_profile $(1)/etc/config/
+	$(INSTALL_DIR) $(1)/etc/ssclash-party
+	$(INSTALL_CONF) ./rootfs/etc/ssclash-party/links.txt $(1)/etc/ssclash-party/
 
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/profile-merge $(1)/usr/bin/ssclash-profile-merge
@@ -124,6 +127,7 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/opt/clash
 	$(INSTALL_CONF) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
+	$(INSTALL_DIR) $(1)/opt/clash/managed-sources
 
 	$(INSTALL_DIR) $(1)/opt/clash/ui
 	$(CP) ./rootfs/opt/clash/ui/* $(1)/opt/clash/ui/
@@ -133,6 +137,11 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) ./rootfs/usr/share/rpcd/acl.d/luci-app-ssclash.json $(1)/usr/share/rpcd/acl.d/
+
+	$(INSTALL_DIR) $(1)/usr/share/ssclash-party/templates
+	$(INSTALL_DATA) ./rootfs/usr/share/ssclash-party/VERSION $(1)/usr/share/ssclash-party/
+	$(INSTALL_DATA) ./rootfs/usr/share/ssclash-party/templates/catalog.json $(1)/usr/share/ssclash-party/templates/
+	$(INSTALL_CONF) ./rootfs/usr/share/ssclash-party/templates/russia.yaml $(1)/usr/share/ssclash-party/templates/
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ssclash
 	$(CP) ./rootfs/www/luci-static/resources/view/ssclash/* $(1)/www/luci-static/resources/view/ssclash/
@@ -160,6 +169,24 @@ define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 mkdir -p /opt/clash 2>/dev/null || true
 [ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml /opt/clash/.config.yaml.upgrade.bak
+[ -n "$$IPKG_INSTROOT" ] || {
+	STATE=/tmp/ssclash-party-upgrade.state
+	CLASH_ENABLED=0
+	CLASH_RUNNING=0
+	SYNC_ENABLED=0
+	SYNC_RUNNING=0
+	/etc/init.d/clash enabled >/dev/null 2>&1 && CLASH_ENABLED=1
+	/etc/init.d/clash status >/dev/null 2>&1 && CLASH_RUNNING=1
+	/etc/init.d/ssclash-profile-sync enabled >/dev/null 2>&1 && SYNC_ENABLED=1
+	/etc/init.d/ssclash-profile-sync status >/dev/null 2>&1 && SYNC_RUNNING=1
+	umask 077
+	{
+		echo "CLASH_ENABLED=$$CLASH_ENABLED"
+		echo "CLASH_RUNNING=$$CLASH_RUNNING"
+		echo "SYNC_ENABLED=$$SYNC_ENABLED"
+		echo "SYNC_RUNNING=$$SYNC_RUNNING"
+	} > "$$STATE"
+}
 exit 0
 endef
 
@@ -176,13 +203,36 @@ fi
 	rm -f /tmp/luci-*
 	chmod 600 /etc/config/ssclash_profile 2>/dev/null || true
 	chmod 600 /opt/clash/config.yaml 2>/dev/null || true
+	mkdir -p /etc/ssclash-party /opt/clash/managed-sources
+	chmod 700 /etc/ssclash-party /opt/clash/managed-sources 2>/dev/null || true
+	[ -f /etc/ssclash-party/links.txt ] || : > /etc/ssclash-party/links.txt
+	chmod 600 /etc/ssclash-party/links.txt 2>/dev/null || true
+
+	if ! uci -q get ssclash_profile.main.source_mode >/dev/null; then
+		if [ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
+			uci -q set ssclash_profile.main.source_mode=subscription
+		else
+			uci -q set ssclash_profile.main.source_mode=manual
+		fi
+	fi
+	uci -q get ssclash_profile.main.rules_mode >/dev/null || \
+		uci -q set ssclash_profile.main.rules_mode=auto
+	uci -q get ssclash_profile.main.template_id >/dev/null || \
+		uci -q set ssclash_profile.main.template_id=russia
+	if [ "$$(uci -q get ssclash_profile.main.user_agent)" = "mihomo/1.19.29" ]; then
+		uci -q set ssclash_profile.main.user_agent=auto
+	fi
+	uci -q commit ssclash_profile
 
 	# On first install the default config.yaml is just a usable example
 	# (no real proxies configured). Prevent auto-start on next boot so the
 	# user can edit /opt/clash/config.yaml first. "Start Service" in LuCI
 	# re-enables it via `/etc/init.d/clash enable`.
 	if [ "$$FIRST_INSTALL" = "1" ]; then
+		/etc/init.d/clash stop 2>/dev/null || true
 		/etc/init.d/clash disable 2>/dev/null || true
+		/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+		/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
 	fi
 
 	# Ensure periodic clash-rules update cron job exists
@@ -195,10 +245,46 @@ fi
 		/etc/init.d/cron restart >/dev/null 2>&1 || true
 	fi
 
-	if [ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
-		/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
-		/etc/init.d/ssclash-profile-sync restart 2>/dev/null || true
+	STATE=/tmp/ssclash-party-upgrade.state
+	if [ "$$FIRST_INSTALL" = "0" ] && [ -s "$$STATE" ]; then
+		if grep -qx 'CLASH_ENABLED=1' "$$STATE"; then
+			/etc/init.d/clash enable 2>/dev/null || true
+		else
+			/etc/init.d/clash disable 2>/dev/null || true
+		fi
+		if grep -qx 'CLASH_RUNNING=1' "$$STATE"; then
+			/etc/init.d/clash start 2>/dev/null || true
+		else
+			/etc/init.d/clash stop 2>/dev/null || true
+		fi
+
+		if [ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
+			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
+			if grep -qx 'SYNC_ENABLED=1' "$$STATE"; then
+				/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
+			else
+				/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
+			fi
+			if grep -qx 'SYNC_RUNNING=1' "$$STATE"; then
+				/etc/init.d/ssclash-profile-sync start 2>/dev/null || true
+			else
+				/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+			fi
+		else
+			/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+			/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
+		fi
+	elif [ "$$FIRST_INSTALL" = "0" ]; then
+		if [ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
+			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
+			/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
+			/etc/init.d/ssclash-profile-sync restart 2>/dev/null || true
+		else
+			/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+			/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
+		fi
 	fi
+	rm -f /tmp/ssclash-party-upgrade.state
 }
 exit 0
 endef
@@ -206,8 +292,10 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
-	/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
+	if [ "$${PKG_UPGRADE:-0}" != "1" ]; then
+		/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+		/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
+	fi
 }
 exit 0
 endef
@@ -215,6 +303,10 @@ endef
 define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
+	if [ "$${PKG_UPGRADE:-0}" = "1" ]; then
+		exit 0
+	fi
+
 	# Clean up cron job for clash-rules update, if present
 	CRON_FILE="/etc/crontabs/root"
 	if [ -f "$$CRON_FILE" ]; then

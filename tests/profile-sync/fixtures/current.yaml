@@ -1,0 +1,23 @@
+mode: rule
+log-level: error
+tproxy-port: 7894
+routing-mark: 2
+allow-lan: false
+ipv6: false
+external-controller: 192.168.10.1:9090
+secret: test-controller-token
+external-ui: ./ui
+dns:
+  enable: true
+  listen: 127.0.0.1:7874
+  ipv6: false
+  enhanced-mode: redir-host
+  nameserver:
+    - https://8.8.8.8/dns-query
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,DIRECT

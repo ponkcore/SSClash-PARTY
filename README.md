@@ -4,11 +4,12 @@
 > SSClash PARTY is an independent downstream of
 > [zerolabnet/SSClash](https://github.com/zerolabnet/SSClash). It is not an
 > official ZeroChaos release. The downstream keeps the upstream package name
-> for safe upgrades and adds transactional complete-profile subscriptions.
+> for safe upgrades and adds transactional configuration sources.
 
 Project notes:
 
 - [PARTY downstream policy](PARTY.md)
+- [Configuration sources](docs/configuration-sources.md)
 - [Managed full-profile subscriptions](docs/managed-full-profile.md)
 - [Upstream synchronization](docs/upstream-sync.md)
 
@@ -16,19 +17,31 @@ Project notes:
  <img src=".github/assets/images/logos/SSClash.png" width="200">
 </p>
 
-<h3 align="center">SSClash with guarded, automatically updated complete Mihomo profiles for OpenWrt</h3>
+<h3 align="center">SSClash with guarded subscriptions, proxy-link templates, and manual Mihomo YAML for OpenWrt</h3>
 
 # Setup Guide
 
-## Managed full-profile subscriptions
+## Configuration sources
 
-SSClash can download a complete Mihomo or Remnawave YAML profile directly
-from the Configuration page. Nodes, groups, rule providers, and ordered rules
-come from the remote profile, while router-critical TProxy, DNS, and
-controller settings remain protected locally.
+The Configuration page supports three source modes:
+
+- an adaptive HTTPS subscription that accepts complete Mihomo YAML,
+  nodes-only YAML, plaintext proxy URIs, or Base64 URI lists;
+- any number of local VLESS, Shadowsocks, Hysteria2, Trojan, VMess, and other
+  Mihomo-compatible share links combined with a PARTY routing template;
+- a complete manually maintained YAML, matching the original SSClash editor
+  workflow.
+
+Subscription users can preserve a complete provider policy or force the
+selected PARTY template. The initial template is **Russia**; more catalog
+entries can be added without changing the source workflow. Router-critical
+TProxy, DNS, and controller settings remain protected locally in both managed
+modes.
 
 Candidates are parsed, tested with Mihomo, installed atomically, and
 hot-reloaded with post-apply health checks and automatic rollback. See
+[Configuration sources](docs/configuration-sources.md) for the complete user
+and compatibility contract, and
 [Managed full-profile subscriptions](docs/managed-full-profile.md) for the
 trust boundary, LuCI workflow, fake-IP policy, recovery procedure, and
 architecture-specific package requirements.
@@ -89,7 +102,7 @@ Download the exact PARTY package from the
 [release page](https://github.com/ponkcore/SSClash-PARTY/releases), along with
 its adjacent `.sha256` file.
 
-The first PARTY preview provides packages for:
+Current PARTY preview releases provide packages for:
 
 - OpenWrt 25.12.5 `mediatek/filogic`, `aarch64_cortex-a53`, including the
   Cudy WBR3000UAX v1;
@@ -99,8 +112,8 @@ The first PARTY preview provides packages for:
 For the Cudy WBR3000UAX v1 on OpenWrt 25.12.5:
 
 ```sh
-release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.1'
-artifact='luci-app-ssclash-4.7.0-r2-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
+release_url='https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.2'
+artifact='luci-app-ssclash-4.7.0-r3-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
 
 curl -fL "$release_url/$artifact" -o "/tmp/$artifact"
 curl -fL "$release_url/$artifact.sha256" -o "/tmp/$artifact.sha256"

@@ -49,9 +49,10 @@ var unsafeTopLevelKeys = []string{
 }
 
 type routerPolicy struct {
-	Controller string
-	DNSListen  string
-	DNSMode    string
+	Controller               string
+	DNSListen                string
+	DNSMode                  string
+	TrustedLocalProviderPath string
 }
 
 type mergeSummary struct {
@@ -67,6 +68,11 @@ type mergeSummary struct {
 	RuntimeRestartRequired    bool     `json:"runtime_restart_required"`
 	NormalizedGroups          []string `json:"normalized_provider_groups,omitempty"`
 	NormalizedCaches          int      `json:"normalized_provider_cache_paths"`
+	SourceFormat              string   `json:"source_format,omitempty"`
+	RulesSource               string   `json:"rules_source,omitempty"`
+	TemplateID                string   `json:"template_id,omitempty"`
+	InputLinks                int      `json:"input_links,omitempty"`
+	SkippedLines              int      `json:"skipped_lines,omitempty"`
 }
 
 func readYAML(path string) (map[string]any, []byte, error) {
@@ -222,7 +228,7 @@ func providerCacheName(section, name string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func normalizeProviderCaches(document map[string]any) (int, error) {
+func normalizeProviderCaches(document map[string]any, trustedLocalProviderPath string) (int, error) {
 	normalized := 0
 	for _, section := range []string{"proxy-providers", "rule-providers"} {
 		providers := asMap(document[section])
@@ -248,6 +254,12 @@ func normalizeProviderCaches(document map[string]any) (int, error) {
 			case "inline":
 				delete(provider, "path")
 			case "file":
+				if section == "proxy-providers" &&
+					name == localProviderName &&
+					nonEmptyString(provider["path"]) == trustedLocalProviderPath &&
+					validManagedSourcePath(trustedLocalProviderPath) {
+					continue
+				}
 				return 0, fmt.Errorf(
 					"%s %q uses a local file; managed remote profiles must be self-contained",
 					section,
@@ -521,7 +533,7 @@ func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) 
 	result["dns"] = dns
 	copyProtectedProfileSettings(result, current)
 
-	normalizedCaches, err := normalizeProviderCaches(result)
+	normalizedCaches, err := normalizeProviderCaches(result, policy.TrustedLocalProviderPath)
 	if err != nil {
 		return nil, nil, 0, false, err
 	}
@@ -606,6 +618,23 @@ func run(remotePath, currentPath, outputPath string, policy routerPolicy) error 
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "inspect":
+			if err := runInspectCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "ssclash-profile-merge inspect: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "build":
+			if err := runBuildCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "ssclash-profile-merge build: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
+
 	var remotePath string
 	var currentPath string
 	var outputPath string
