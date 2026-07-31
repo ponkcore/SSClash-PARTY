@@ -224,13 +224,15 @@ jobs:
               --destination "$inspect_root" \
               "$source_package"
           else
-            data_member="$(
-              ar t "$source_package" |
-                awk '/^data\.tar\./ { print; exit }'
+            ipk_root="$inspect_root/ipk-container"
+            mkdir "$ipk_root"
+            tar -xzf "$source_package" -C "$ipk_root"
+            data_archive="$(
+              find "$ipk_root" -maxdepth 1 -type f \
+                -name 'data.tar.*' -print -quit
             )"
-            test -n "$data_member"
-            ar p "$source_package" "$data_member" |
-              tar -x -C "$inspect_root" -f -
+            test -n "$data_archive"
+            tar -x -C "$inspect_root" -f "$data_archive"
           fi
 
           merger="$inspect_root/usr/bin/ssclash-profile-merge"
