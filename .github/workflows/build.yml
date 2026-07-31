@@ -270,7 +270,7 @@ jobs:
             "$inspect_root/usr/share/rpcd/acl.d/luci-app-ssclash.json"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ssclash-${{ matrix.version }}-${{ matrix.package-arch }}-${{ matrix.package-format }}
           path: dist/*
@@ -292,7 +292,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: ssclash-*
           path: release
@@ -313,7 +313,7 @@ jobs:
           } > release-notes.md
 
       - name: Publish prerelease
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag }}
           body_path: release-notes.md
