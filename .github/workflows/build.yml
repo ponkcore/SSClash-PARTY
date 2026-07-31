@@ -1,144 +1,286 @@
-name: build
+name: Build and test
+
 on:
   push:
     branches:
-      - master
+      - main
+      - party
+      - "feature/**"
+  pull_request:
   workflow_dispatch:
     inputs:
-      release-tag:
-        description: 'Release Tag (v1.x.x)'
-        required: true
+      release_tag:
+        description: "Optional tag for a GitHub prerelease"
+        required: false
         type: string
 
+permissions:
+  contents: read
+
+env:
+  PACKAGE_NAME: luci-app-ssclash
+
 jobs:
-  release:
-    name: Build and Release
-    runs-on: ubuntu-22.04
-    strategy:
-      matrix:
-        include:
-          - version: "24.10.2"
-            pkg_format: "ipk"
-            arch: "x86/64"
-          - version: "25.12.0-rc2"
-            pkg_format: "apk"
-            arch: "x86/64"
-    
-    env:
-      PACKAGE_NAME: luci-app-ssclash
-      SDK_URL_PATH: https://downloads.openwrt.org/releases/${{ matrix.version }}/targets/${{ matrix.arch }}/
-      SDK_NAME: -sdk-
-      
+  quality:
+    name: Static and unit tests
+    runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install Dependencies
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: luci-app-ssclash/profile-merge/go.mod
+          cache-dependency-path: luci-app-ssclash/profile-merge/go.sum
+
+      - name: Install test tools
         run: |
           sudo apt-get update
-          sudo apt-get install -yq gettext libncurses5-dev rsync xsltproc build-essential gawk unzip
-          
-      - name: Create Directories
+          sudo apt-get install -y --no-install-recommends jq shellcheck
+
+      - name: Check Go formatting and tests
+        working-directory: luci-app-ssclash/profile-merge
         run: |
-          echo "SDK_DL_DIR=$(mktemp -d)" >> $GITHUB_ENV
-          echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
-          
-      - name: Prepare Build Environment
+          test -z "$(gofmt -l main.go main_test.go)"
+          go test -mod=vendor ./...
+
+      - name: Check OpenWrt shell and LuCI sources
         run: |
-          set -euo pipefail
-          cd "$SDK_DL_DIR"
-          if ! ( wget -q -O - "$SDK_URL_PATH/sha256sums" | grep -- "$SDK_NAME" > sha256sums.small 2>/dev/null ) ; then
-            echo "Can not find ${SDK_NAME} file in sha256sums."
-            exit 1
-          fi
-          SDK_FILE="$(cut -d' ' -f2 < sha256sums.small | sed 's/*//g')"
-          wget -q -O "$SDK_FILE" "$SDK_URL_PATH/$SDK_FILE"
-          if ! sha256sum -c ./sha256sums.small >/dev/null 2>&1 ; then
-            echo "SDK can not be verified!"
-            exit 1
-          fi
-          tar --zstd -xf "$SDK_DL_DIR/$SDK_FILE" -C "$SDK_HOME" --strip=1
-          
-      - name: Build Packages
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync
+          sh -n luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
+          shellcheck -s sh -e SC2034,SC3043 \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
+            luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
+          bash -n scripts/write-minimal-sdk-config.sh
+          shellcheck -s bash scripts/write-minimal-sdk-config.sh
+          node --check \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js
+          jq empty \
+            luci-app-ssclash/rootfs/usr/share/rpcd/acl.d/luci-app-ssclash.json
+          git diff --check "$(git merge-base HEAD origin/main)" HEAD
+
+      - name: Scan the source tree for secrets
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
         run: |
-          set -euo pipefail
-          cd "$SDK_HOME"
-          ./scripts/feeds update > /dev/null 2>&1
-          ./scripts/feeds install -a > /dev/null 2>&1
-          ln -s "${{ github.workspace }}/luci-app-ssclash" "package/$PACKAGE_NAME"
-          make defconfig > /dev/null 2>&1
-          make package/${PACKAGE_NAME}/compile V=s
-          
-          # Find and copy all packages (handles both naming conventions)
-          find "$SDK_HOME/bin" -type f \( -name "${PACKAGE_NAME}_*.${{ matrix.pkg_format }}" -o -name "${PACKAGE_NAME}-*.${{ matrix.pkg_format }}" \) \
-           -exec cp -v -f {} "${{ github.workspace }}" \;
-          
-          # List copied files
-          echo "Copied packages:"
-          ls -lah "${{ github.workspace }}"/*.${{ matrix.pkg_format }}
-           
-      - name: Generate Release Notes
-        run: |
-          set -euo pipefail
-          echo "## Release ${{ github.event.inputs.release-tag }}" > release_notes_${{ matrix.version }}.md
-          echo "" >> release_notes_${{ matrix.version }}.md
-          echo "### OpenWrt ${{ matrix.version }} - ${{ matrix.pkg_format }} packages" >> release_notes_${{ matrix.version }}.md
-          echo "- Built with OpenWrt SDK ${{ matrix.version }}" >> release_notes_${{ matrix.version }}.md
-          echo "- Package format: ${{ matrix.pkg_format }}" >> release_notes_${{ matrix.version }}.md
-          echo "- Build date: $(date)" >> release_notes_${{ matrix.version }}.md
-          
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: packages-${{ matrix.version }}-${{ matrix.pkg_format }}
-          path: "*.${{ matrix.pkg_format }}"
-          retention-days: 1
-          
-  create-release:
-    name: Create Release
-    needs: release
-    runs-on: ubuntu-22.04
-    if: github.event_name == 'workflow_dispatch'
-    
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "/tmp/${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "/tmp/${archive}" |
+            sha256sum --check --strict
+          tar -xzf "/tmp/${archive}" -C /tmp gitleaks
+          /tmp/gitleaks dir . --redact --no-banner
+
+  package:
+    name: OpenWrt ${{ matrix.version }} ${{ matrix.target }}
+    needs: quality
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - version: "24.10.8"
+            target: "x86/64"
+            package-format: "ipk"
+            package-arch: "x86_64"
+            device-symbol: ""
+          - version: "25.12.5"
+            target: "x86/64"
+            package-format: "apk"
+            package-arch: "x86_64"
+            device-symbol: ""
+          - version: "25.12.5"
+            target: "mediatek/filogic"
+            package-format: "apk"
+            package-arch: "aarch64_cortex-a53"
+            device-symbol: "TARGET_DEVICE_mediatek_filogic_DEVICE_cudy_wbr3000uax-v1"
+
+    env:
+      SDK_URL_PATH: https://downloads.openwrt.org/releases/${{ matrix.version }}/targets/${{ matrix.target }}
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          
-      - name: Prepare release files
+
+      - name: Install SDK prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential file gawk gettext libncurses-dev rsync \
+            unzip xsltproc zstd
+
+      - name: Create temporary directories
+        run: |
+          echo "SDK_DOWNLOAD=$(mktemp -d)" >> "$GITHUB_ENV"
+          echo "SDK_HOME=$(mktemp -d)" >> "$GITHUB_ENV"
+
+      - name: Download and verify the official SDK
+        run: |
+          set -eu
+          cd "$SDK_DOWNLOAD"
+          curl -fsSLO "$SDK_URL_PATH/sha256sums"
+          sdk_file="$(
+            awk '$2 ~ /openwrt-sdk-.*Linux-x86_64\.tar\.zst$/ {
+              sub(/^\*/, "", $2)
+              print $2
+            }' sha256sums
+          )"
+          test -n "$sdk_file"
+          test "$(printf '%s\n' "$sdk_file" | wc -l)" -eq 1
+          curl -fsSLO "$SDK_URL_PATH/$sdk_file"
+          grep -F " $sdk_file" sha256sums > sdk.sha256
+          sha256sum --check --strict sdk.sha256
+          tar --zstd -xf "$sdk_file" -C "$SDK_HOME" --strip-components=1
+
+      - name: Install only required OpenWrt feeds
+        working-directory: ${{ env.SDK_HOME }}
+        run: |
+          set -eu
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install \
+            coreutils-base64 curl golang jsonfilter luci-base
+          ln -s "${{ github.workspace }}/luci-app-ssclash" \
+            "package/$PACKAGE_NAME"
+
+      - name: Configure and build the package
+        working-directory: ${{ env.SDK_HOME }}
+        run: |
+          set -eu
+          make defconfig
+          "${{ github.workspace }}/scripts/write-minimal-sdk-config.sh" \
+            "$SDK_HOME" \
+            "${{ matrix.device-symbol }}"
+          make defconfig
+          grep -qx '# CONFIG_ALL is not set' .config
+          grep -qx '# CONFIG_BUILDBOT is not set' .config
+          grep -qx 'CONFIG_AUTOREMOVE=y' .config
+          grep -qx 'CONFIG_PACKAGE_luci-app-ssclash=m' .config
+          grep -qx \
+            'CONFIG_PACKAGE_luci-app-ssclash_Nftables_Transparent_Proxy=y' \
+            .config
+          if [ -n '${{ matrix.device-symbol }}' ]; then
+            grep -qx \
+              "CONFIG_${{ matrix.device-symbol }}=y" \
+              .config
+          fi
+          make "package/$PACKAGE_NAME/compile" -j2 V=s
+
+      - name: Collect and inspect the package
         run: |
           set -euo pipefail
-          mkdir -p release_files
-          find artifacts -type f \( -name "*.ipk" -o -name "*.apk" \) -exec cp {} release_files/ \;
-          ls -lah release_files/
-          
-      - name: Generate Combined Release Notes
-        run: |
-          set -euo pipefail
-          git fetch --tags --force
-          current_tag="${{ github.event.inputs.release-tag }}"
-          previous_tag="$(git tag --sort=-creatordate | grep -v -F "$current_tag" | head -n 1 || true)"
-          if [ -n "$previous_tag" ]; then
-            commit_subjects="$(git log --no-merges --pretty=format:'%s' "${previous_tag}..HEAD")"
+          mkdir -p dist
+          matches="$(
+            find "$SDK_HOME/bin" -type f \
+              \( -name "${PACKAGE_NAME}_*.${{ matrix.package-format }}" \
+                 -o -name "${PACKAGE_NAME}-*.${{ matrix.package-format }}" \)
+          )"
+          test -n "$matches"
+          test "$(printf '%s\n' "$matches" | wc -l)" -eq 1
+          source_package="$matches"
+          source_name="$(basename "$source_package")"
+          source_stem="${source_name%.${{ matrix.package-format }}}"
+          target_name="$(printf '%s' '${{ matrix.target }}' | tr '/' '-')"
+          output="dist/${source_stem}-openwrt-${{ matrix.version }}-${target_name}-${{ matrix.package-arch }}.${{ matrix.package-format }}"
+          cp "$source_package" "$output"
+          sha256sum "$output" > "${output}.sha256"
+
+          inspect_root="$(mktemp -d)"
+          trap 'rm -rf "$inspect_root"' EXIT
+          if [ '${{ matrix.package-format }}' = apk ]; then
+            "$SDK_HOME/staging_dir/host/bin/apk" extract \
+              --allow-untrusted \
+              --destination "$inspect_root" \
+              "$source_package"
           else
-            commit_subjects="$(git log --no-merges --pretty=format:'%s')"
+            data_member="$(
+              ar t "$source_package" |
+                awk '/^data\.tar\./ { print; exit }'
+            )"
+            test -n "$data_member"
+            ar p "$source_package" "$data_member" |
+              tar -x -C "$inspect_root" -f -
           fi
 
-          echo "## Release ${{ github.event.inputs.release-tag }}" > release_notes.md
-          if [ -n "$commit_subjects" ]; then
-            echo "" >> release_notes.md
-            printf '%s\n' "$commit_subjects" >> release_notes.md
-          fi
-          
-      - name: Release and Upload Assets
+          merger="$inspect_root/usr/bin/ssclash-profile-merge"
+          helper="$inspect_root/usr/libexec/ssclash-profile-sync"
+          profile_config="$inspect_root/etc/config/ssclash_profile"
+          active_config="$inspect_root/opt/clash/config.yaml"
+          test -x "$merger"
+          test -x "$helper"
+          test "$(stat -c '%a' "$profile_config")" = 600
+          test "$(stat -c '%a' "$active_config")" = 600
+          strings "$merger" > "$inspect_root/merger.strings"
+          grep -q 'runtime_restart_required' "$inspect_root/merger.strings"
+          grep -q 'restart_required' "$helper"
+
+          file_output="$(file "$merger")"
+          printf '%s\n' "$file_output"
+          case '${{ matrix.package-arch }}' in
+            aarch64_*)
+              printf '%s\n' "$file_output" | grep -q 'ARM aarch64'
+              ;;
+            x86_64)
+              printf '%s\n' "$file_output" | grep -q 'x86-64'
+              ;;
+            *)
+              echo "No ELF assertion for ${{ matrix.package-arch }}" >&2
+              exit 1
+              ;;
+          esac
+
+          sh -n "$helper"
+          sh -n "$inspect_root/etc/init.d/ssclash-profile-sync"
+          node --check \
+            "$inspect_root/www/luci-static/resources/view/ssclash/config.js"
+          jq empty \
+            "$inspect_root/usr/share/rpcd/acl.d/luci-app-ssclash.json"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssclash-${{ matrix.version }}-${{ matrix.package-arch }}-${{ matrix.package-format }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create preview release
+    needs:
+      - quality
+      - package
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ssclash-*
+          path: release
+          merge-multiple: true
+
+      - name: Create release notes
+        run: |
+          {
+            echo "## SSClash managed full-profile preview"
+            echo
+            echo "This is an independent preview build, not an official zerolabnet release."
+            echo
+            echo "Every package is architecture-specific because it includes the profile merger."
+            echo "Install only the artifact matching the OpenWrt version and package architecture."
+          } > release-notes.md
+
+      - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          files: release_files/*
-          tag_name: ${{ github.event.inputs.release-tag }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ inputs.release_tag }}
+          body_path: release-notes.md
+          files: release/*
+          prerelease: true

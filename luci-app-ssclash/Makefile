@@ -5,28 +5,48 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=1
-PKG_MAINTAINER:=ZeroChaos <dev@null.la>
+PKG_RELEASE:=2
+PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
+PKG_LICENSE:=GPL-2.0-only
+PKG_LICENSE_FILES:=LICENSE
+PKG_URL:=https://github.com/zerolabnet/SSClash
 
 LUCI_TITLE:=LuCI Support for SSClash
-LUCI_DEPENDS:=+luci-base +coreutils-base64 +kmod-tun +curl
-LUCI_PKGARCH:=all
+LUCI_DEPENDS:= \
+	+luci-base \
+	+coreutils-base64 \
+	+kmod-tun \
+	+curl \
+	+jsonfilter \
+	+PACKAGE_$(PKG_NAME)_Iptables_Transparent_Proxy:iptables-mod-tproxy \
+	+PACKAGE_$(PKG_NAME)_Nftables_Transparent_Proxy:kmod-nft-tproxy
 
 PKG_CONFIG_DEPENDS:= \
 	CONFIG_PACKAGE_$(PKG_NAME)_Iptables_Transparent_Proxy \
 	CONFIG_PACKAGE_$(PKG_NAME)_Nftables_Transparent_Proxy
 
-PKG_BUILD_DEPENDS:=luci-base/host
+PKG_BUILD_DEPENDS:=luci-base/host golang/host
+PKG_BUILD_PARALLEL:=1
+
+GO_PKG:=github.com/zerolabnet/SSClash/luci-app-ssclash/profile-merge
+GO_PKG_BUILD_PKG:=$(GO_PKG)
+GO_PKG_INSTALL_EXTRA:=vendor/modules.txt
 
 include $(INCLUDE_DIR)/package.mk
+include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
+
+# The OpenWrt Go helper stages local package sources below GOPATH. Explicitly
+# use GOPATH mode for this vendored, in-tree command so `go list` does not try
+# to discover a module or VCS repository from the SDK's parent directory.
+GO_PKG_BUILD_VARS += GO111MODULE=off
+GO_MOD_ARGS:=
 
 define Package/$(PKG_NAME)
 	SECTION:=luci
 	CATEGORY:=LuCI
 	SUBMENU:=3. Applications
 	TITLE:=$(LUCI_TITLE)
-	DEPENDS:=$(LUCI_DEPENDS)
-	PKGARCH:=$(LUCI_PKGARCH)
+	DEPENDS:=$(GO_ARCH_DEPENDS) $(LUCI_DEPENDS)
 endef
 
 define Package/$(PKG_NAME)/config
@@ -47,14 +67,20 @@ endchoice
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI interface for SSClash, a tool for managing and configuring Clash.
+	LuCI interface for SSClash, including transactional full-profile
+	subscription synchronization for Mihomo.
 endef
 
 define Build/Prepare
-	# No preparation steps required
+	rm -rf $(PKG_BUILD_DIR)
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)
+	$(CP) ./profile-merge/. $(PKG_BUILD_DIR)/
+	$(CP) ../LICENSE $(PKG_BUILD_DIR)/
 endef
 
 define Build/Compile
+	$(call GoPackage/Build/Compile)
+
 	@mkdir -p $(PKG_BUILD_DIR)/po/ru
 	@if [ -f "./rootfs/po/ru/ssclash.po" ]; then \
 		$(STAGING_DIR_HOSTPKG)/bin/po2lmo \
@@ -71,11 +97,22 @@ endef
 
 define Package/$(PKG_NAME)/conffiles
 /opt/clash/config.yaml
+/etc/config/ssclash_profile
 endef
 
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./rootfs/etc/init.d/clash $(1)/etc/init.d/
+	$(INSTALL_BIN) ./rootfs/etc/init.d/ssclash-profile-sync $(1)/etc/init.d/
+
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./rootfs/etc/config/ssclash_profile $(1)/etc/config/
+
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/profile-merge $(1)/usr/bin/ssclash-profile-merge
+
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-profile-sync $(1)/usr/libexec/
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./rootfs/etc/hotplug.d/iface/40-clash $(1)/etc/hotplug.d/iface/
@@ -86,7 +123,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./rootfs/opt/clash/bin/clash-rules $(1)/opt/clash/bin/
 
 	$(INSTALL_DIR) $(1)/opt/clash
-	$(INSTALL_DATA) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
+	$(INSTALL_CONF) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
 
 	$(INSTALL_DIR) $(1)/opt/clash/ui
 	$(CP) ./rootfs/opt/clash/ui/* $(1)/opt/clash/ui/
@@ -137,6 +174,8 @@ fi
 [ -n "$$IPKG_INSTROOT" ] || {
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-*
+	chmod 600 /etc/config/ssclash_profile 2>/dev/null || true
+	chmod 600 /opt/clash/config.yaml 2>/dev/null || true
 
 	# On first install the default config.yaml is just a usable example
 	# (no real proxies configured). Prevent auto-start on next boot so the
@@ -155,6 +194,20 @@ fi
 		echo "$$CRON_LINE" >> "$$CRON_FILE"
 		/etc/init.d/cron restart >/dev/null 2>&1 || true
 	fi
+
+	if [ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ]; then
+		/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
+		/etc/init.d/ssclash-profile-sync restart 2>/dev/null || true
+	fi
+}
+exit 0
+endef
+
+define Package/$(PKG_NAME)/prerm
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] || {
+	/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
+	/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
 }
 exit 0
 endef
@@ -179,6 +232,8 @@ define Package/$(PKG_NAME)/postrm
 	rm -f /etc/hotplug.d/iface/40-clash
 	rm -f /etc/hotplug.d/net/99-clash-tun
 	rm -f /etc/apk/protected_paths.d/ssclash.list
+	rm -rf /tmp/ssclash-profile-sync
+	rm -rf /tmp/ssclash-profile-sync.lock
 }
 endef
 

@@ -1,0 +1,792 @@
+#!/bin/sh
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+SELF=/usr/libexec/ssclash-profile-sync
+MERGER=/usr/bin/ssclash-profile-merge
+CLASH=/opt/clash/bin/clash
+CLASH_RULES=/opt/clash/bin/clash-rules
+CLASH_INIT=/etc/init.d/clash
+ACTIVE_CONFIG=/opt/clash/config.yaml
+PROFILE_CONFIG=/etc/config/ssclash_profile
+BACKUP_DIR=/opt/clash/profile-backups
+STATE_DIR=/tmp/ssclash-profile-sync
+STATUS_FILE="$STATE_DIR/status.json"
+LOCK_DIR=/tmp/ssclash-profile-sync.lock
+SOURCE_HASH_FILE=/opt/clash/profile-sync.source.sha256
+MAX_PROFILE_BYTES=5242880
+MIN_INTERVAL=300
+MAX_INTERVAL=604800
+CLEANUP_DIR=
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
+
+log_message() {
+	logger -t ssclash-profile-sync "$1"
+}
+
+now_epoch() {
+	date +%s
+}
+
+write_status() {
+	local state="$1"
+	local code="$2"
+	local message="$3"
+	local summary="${4:-null}"
+	local changed="${5:-false}"
+	local timestamp
+	timestamp="$(now_epoch)"
+
+	case "$summary" in
+		\{*\}) ;;
+		*) summary=null ;;
+	esac
+
+	umask 077
+	{
+		printf '{'
+		printf '"state":"%s",' "$state"
+		printf '"code":"%s",' "$code"
+		printf '"message":"%s",' "$message"
+		printf '"time":%s,' "$timestamp"
+		printf '"changed":%s,' "$changed"
+		printf '"summary":%s' "$summary"
+		printf '}\n'
+	} > "$STATUS_FILE.tmp"
+	mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+}
+
+print_status() {
+	if [ -s "$STATUS_FILE" ]; then
+		cat "$STATUS_FILE"
+	else
+		printf '%s\n' '{"state":"idle","code":"never_run","message":"Managed profile sync has not run since boot.","time":0,"changed":false,"summary":null}'
+	fi
+}
+
+release_lock() {
+	rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+	rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+remove_work_dir() {
+	local target="${1:-}"
+	case "$target" in
+		/tmp/ssclash-profile-sync.*|/tmp/ssclash-guarded-start.*)
+			rm -rf "$target"
+			;;
+	esac
+}
+
+cleanup_operation() {
+	remove_work_dir "$CLEANUP_DIR"
+	release_lock
+}
+
+acquire_lock() {
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+		return 0
+	fi
+
+	if [ -r "$LOCK_DIR/pid" ]; then
+		local owner
+		owner="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+		case "$owner" in
+			''|*[!0-9]*) ;;
+			*)
+				if kill -0 "$owner" 2>/dev/null; then
+					return 1
+				fi
+				;;
+		esac
+	fi
+
+	rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+	rmdir "$LOCK_DIR" 2>/dev/null || true
+	mkdir "$LOCK_DIR" 2>/dev/null || return 1
+	printf '%s\n' "$$" > "$LOCK_DIR/pid"
+	return 0
+}
+
+config_value() {
+	local key="$1"
+	local fallback="${2:-}"
+	local value
+	value="$(uci -q get "ssclash_profile.main.$key" 2>/dev/null)"
+	[ -n "$value" ] && printf '%s\n' "$value" || printf '%s\n' "$fallback"
+}
+
+validated_interval() {
+	local interval
+	interval="$(config_value interval 3600)"
+	case "$interval" in
+		''|*[!0-9]*) interval=3600 ;;
+	esac
+	[ "$interval" -lt "$MIN_INTERVAL" ] && interval="$MIN_INTERVAL"
+	[ "$interval" -gt "$MAX_INTERVAL" ] && interval="$MAX_INTERVAL"
+	printf '%s\n' "$interval"
+}
+
+validate_url() {
+	local url="$1"
+	[ "${#url}" -le 2048 ] || return 1
+	case "$url" in
+		https://*) ;;
+		*) return 1 ;;
+	esac
+	printf '%s' "$url" | grep -q '[[:space:]]' && return 1
+	printf '%s' "$url" | grep -q "['\"\\\\]" && return 1
+	return 0
+}
+
+validate_header_value() {
+	local value="$1"
+	local maximum="$2"
+	local without_newlines
+
+	[ "${#value}" -le "$maximum" ] || return 1
+	without_newlines="$(printf '%s' "$value" | tr -d '\r\n')"
+	[ "$without_newlines" = "$value" ]
+}
+
+valid_port() {
+	local port="$1"
+	case "$port" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	[ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+}
+
+fetch_profile() {
+	local output="$1"
+	local url="$2"
+	local user_agent="$3"
+	local hwid="$4"
+	local device_os="$5"
+	local device_model="$6"
+	local error_file="$7"
+	local header_file="${output}.request-headers"
+	local curl_status
+
+	umask 077
+	{
+		printf 'User-Agent: %s\n' "$user_agent"
+		if [ -n "$hwid" ]; then
+			printf 'x-hwid: %s\n' "$hwid"
+			printf 'x-device-os: %s\n' "$device_os"
+			printf 'x-device-model: %s\n' "$device_model"
+		fi
+	} > "$header_file" || return 1
+
+	printf 'url = "%s"\n' "$url" | curl -fsS \
+		--config - \
+		--proto '=https' --max-redirs 0 \
+		--connect-timeout 10 --max-time 45 \
+		--retry 2 --retry-delay 1 --retry-all-errors --retry-max-time 45 \
+		--max-filesize "$MAX_PROFILE_BYTES" \
+		-H "@$header_file" \
+		-o "$output" 2>"$error_file"
+	curl_status=$?
+	rm -f "$header_file"
+	return "$curl_status"
+}
+
+is_clash_running() {
+	"$CLASH_INIT" status >/dev/null 2>&1
+}
+
+yaml_scalar() {
+	local key="$1"
+	local file="$2"
+	awk -v wanted="$key" '
+		$0 ~ ("^" wanted ":[[:space:]]*") {
+			sub("^[^:]+:[[:space:]]*", "")
+			sub("[[:space:]]*#.*$", "")
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+			gsub(/^["\047]|["\047]$/, "")
+			print
+			exit
+		}
+	' "$file"
+}
+
+resolve_controller_port() {
+	local configured current
+	configured="$(config_value controller_port 9090)"
+	if valid_port "$configured"; then
+		printf '%s\n' "$configured"
+		return 0
+	fi
+
+	current="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
+	case "$current" in
+		*:[0-9]*)
+			current="${current##*:}"
+			valid_port "$current" && {
+				printf '%s\n' "$current"
+				return 0
+			}
+			;;
+	esac
+	printf '%s\n' 9090
+}
+
+resolve_controller() {
+	local configured current interface address port
+	configured="$(config_value controller)"
+	if [ -n "$configured" ]; then
+		printf '%s\n' "$configured"
+		return 0
+	fi
+
+	current="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
+	case "$current" in
+		""|0.0.0.0:*|"[::]":*|:*) ;;
+		*:*)
+			printf '%s\n' "$current"
+			return 0
+			;;
+	esac
+
+	interface="$(config_value lan_interface lan)"
+	address="$(ubus -S call "network.interface.$interface" status 2>/dev/null |
+		jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)"
+	[ -n "$address" ] || return 1
+	port="$(resolve_controller_port)"
+	printf '%s:%s\n' "$address" "$port"
+}
+
+resolve_device_model() {
+	local configured
+	configured="$(config_value device_model)"
+	if [ -n "$configured" ]; then
+		printf '%s\n' "$configured"
+	elif [ -s /tmp/sysinfo/model ]; then
+		sed -n '1p' /tmp/sysinfo/model
+	else
+		printf '%s\n' 'OpenWrt router'
+	fi
+}
+
+validate_controller_endpoint() {
+	local endpoint="$1"
+	local host port first second third fourth
+
+	case "$endpoint" in
+		\[*\]:*)
+			host="${endpoint%%]:*}"
+			host="${host#\[}"
+			port="${endpoint##*:}"
+			;;
+		*:*)
+			host="${endpoint%:*}"
+			port="${endpoint##*:}"
+			;;
+		*)
+			return 1
+			;;
+	esac
+	valid_port "$port" || return 1
+
+	case "$host" in
+		::1|[fF][cCdD]*|[fF][eE][89aAbB]*)
+			return 0
+			;;
+	esac
+
+	IFS=. read -r first second third fourth <<EOF
+$host
+EOF
+	for octet in "$first" "$second" "$third" "$fourth"; do
+		case "$octet" in
+			''|*[!0-9]*) return 1 ;;
+		esac
+		[ "$octet" -le 255 ] || return 1
+	done
+
+	case "$first.$second" in
+		10.*|127.*|169.254|192.168)
+			return 0
+			;;
+		172.*)
+			[ "$second" -ge 16 ] && [ "$second" -le 31 ]
+			return
+			;;
+	esac
+	return 1
+}
+
+controller_request() {
+	local method="$1"
+	local endpoint="$2"
+	local output="$3"
+	local data="${4:-}"
+	local controller secret header_file http_code curl_status
+	controller="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
+	secret="$(yaml_scalar secret "$ACTIVE_CONFIG")"
+	[ -n "$controller" ] || return 1
+	[ -n "$secret" ] || return 1
+	validate_controller_endpoint "$controller" || return 1
+	validate_header_value "$secret" 4096 || return 1
+
+	header_file="${output}.authorization"
+	umask 077
+	printf 'Authorization: Bearer %s\n' "$secret" > "$header_file" || return 1
+
+	if [ -n "$data" ]; then
+		http_code="$(curl -sS --connect-timeout 3 --max-time 15 \
+			-o "$output" -w '%{http_code}' \
+			-X "$method" \
+			-H "@$header_file" \
+			-H 'Content-Type: application/json' \
+			--data "$data" \
+			"http://$controller$endpoint")"
+		curl_status=$?
+	else
+		http_code="$(curl -sS --connect-timeout 3 --max-time 15 \
+			-o "$output" -w '%{http_code}' \
+			-X "$method" \
+			-H "@$header_file" \
+			"http://$controller$endpoint")"
+		curl_status=$?
+	fi
+	rm -f "$header_file"
+	[ "$curl_status" -eq 0 ] || return 1
+	printf '%s' "$http_code"
+}
+
+reload_running_core() {
+	local work_dir="$1"
+	local http_code
+	http_code="$(controller_request PUT '/configs?force=true' "$work_dir/reload-response" '{"path":"","payload":""}' 2>"$work_dir/reload-error")" || return 1
+	[ "$http_code" = "204" ] || [ "$http_code" = "200" ]
+}
+
+controller_healthy() {
+	local work_dir="$1"
+	local http_code
+	http_code="$(controller_request GET '/version' "$work_dir/version-response" 2>"$work_dir/version-error")" || return 1
+	[ "$http_code" = "200" ]
+}
+
+profile_proxy_group() {
+	awk '
+		/^proxy-groups:/ {
+			in_groups = 1
+			next
+		}
+		in_groups && /^[^[:space:]]/ {
+			exit
+		}
+		in_groups && /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+			line = $0
+			sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			gsub(/^["\047]|["\047]$/, "", line)
+			if (first == "") {
+				first = line
+			}
+			if (line == "PROXY") {
+				print line
+				found = 1
+				exit
+			}
+		}
+		END {
+			if (!found && first != "") {
+				print first
+			}
+		}
+	' "$ACTIVE_CONFIG"
+}
+
+urlencode_path_component() {
+	local remaining="$1"
+	local character code
+	while [ -n "$remaining" ]; do
+		character="${remaining%"${remaining#?}"}"
+		remaining="${remaining#?}"
+		case "$character" in
+			[a-zA-Z0-9.~_-])
+				printf '%s' "$character"
+				;;
+			*)
+				code="$(printf '%d' "'$character")"
+				printf '%%%02X' "$code"
+				;;
+		esac
+	done
+}
+
+proxy_path_healthy() {
+	local work_dir="$1"
+	local controller secret group encoded_group http_code header_file
+	local primary_url secondary_url probe_url
+	controller="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
+	secret="$(yaml_scalar secret "$ACTIVE_CONFIG")"
+	group="$(profile_proxy_group)"
+	primary_url="$(config_value health_url_primary 'https://www.gstatic.com/generate_204')"
+	secondary_url="$(config_value health_url_secondary 'https://cp.cloudflare.com/generate_204')"
+	[ -n "$controller" ] || return 1
+	[ -n "$secret" ] || return 1
+	validate_controller_endpoint "$controller" || return 1
+	validate_header_value "$secret" 4096 || return 1
+	[ -n "$group" ] || group=GLOBAL
+	encoded_group="$(urlencode_path_component "$group")"
+	header_file="$work_dir/proxy-delay.authorization"
+	umask 077
+	printf 'Authorization: Bearer %s\n' "$secret" > "$header_file" || return 1
+
+	for probe_url in "$primary_url" "$secondary_url"; do
+		validate_url "$probe_url" || continue
+		http_code="$(curl -sS --connect-timeout 3 --max-time 12 \
+			-o "$work_dir/proxy-delay-response" -w '%{http_code}' \
+			-H "@$header_file" \
+			-G \
+			--data-urlencode "url=$probe_url" \
+			--data-urlencode 'timeout=7000' \
+			--data-urlencode 'expected=200/204' \
+			"http://$controller/proxies/$encoded_group/delay" 2>"$work_dir/proxy-delay-error")" || continue
+		if [ "$http_code" = "200" ]; then
+			rm -f "$header_file"
+			return 0
+		fi
+	done
+	rm -f "$header_file"
+	return 1
+}
+
+runtime_healthy() {
+	local work_dir="$1"
+	local timeout_seconds="${2:-45}"
+	local deadline
+	deadline=$(( $(now_epoch) + timeout_seconds ))
+
+	while [ "$(now_epoch)" -lt "$deadline" ]; do
+		if is_clash_running && controller_healthy "$work_dir"; then
+			if nslookup openwrt.org 127.0.0.1 >"$work_dir/dns-check" 2>&1 ||
+				nslookup cloudflare.com 127.0.0.1 >"$work_dir/dns-check" 2>&1; then
+				if proxy_path_healthy "$work_dir"; then
+					return 0
+				fi
+			fi
+		fi
+		sleep 1
+	done
+	return 1
+}
+
+rotate_backups() {
+	set -- "$BACKUP_DIR"/config.yaml.*
+	[ -e "$1" ] || return 0
+	while [ "$#" -gt 5 ]; do
+		rm -f "$1"
+		shift
+	done
+}
+
+install_candidate() {
+	local candidate="$1"
+	local backup="$2"
+	local temporary="/opt/clash/.config.yaml.profile-sync.$$"
+
+	cp -p "$ACTIVE_CONFIG" "$backup" || return 1
+	chmod 600 "$backup" || return 1
+	cp "$candidate" "$temporary" || return 1
+	chmod 600 "$temporary" || return 1
+	mv "$temporary" "$ACTIVE_CONFIG"
+}
+
+restore_backup() {
+	local backup="$1"
+	local temporary="/opt/clash/.config.yaml.profile-restore.$$"
+	[ -s "$backup" ] || return 1
+	cp "$backup" "$temporary" || return 1
+	chmod 600 "$temporary" || return 1
+	mv "$temporary" "$ACTIVE_CONFIG"
+}
+
+guarded_start() {
+	local work_dir="${1:-}"
+	local own_work_dir=0
+	if [ -z "$work_dir" ]; then
+		work_dir="$(mktemp -d /tmp/ssclash-guarded-start.XXXXXX)" || return 1
+		chmod 700 "$work_dir"
+		own_work_dir=1
+	fi
+
+	local confirmed="$work_dir/start-confirmed"
+	local watchdog_pid
+	rm -f "$confirmed"
+
+	(
+		sleep 75
+		if [ ! -f "$confirmed" ]; then
+			"$CLASH_INIT" stop >/dev/null 2>&1 || true
+			"$CLASH_INIT" disable >/dev/null 2>&1 || true
+			log_message "Guarded start timed out; SSClash was stopped and disabled."
+		fi
+	) >/dev/null 2>&1 &
+	watchdog_pid=$!
+
+	"$CLASH_INIT" disable >/dev/null 2>&1 || true
+	if ! "$CLASH_INIT" start >"$work_dir/start-output" 2>&1; then
+		kill "$watchdog_pid" 2>/dev/null || true
+		wait "$watchdog_pid" 2>/dev/null || true
+		"$CLASH_INIT" stop >/dev/null 2>&1 || true
+		write_status error start_failed "SSClash failed to start; direct networking was restored." null false
+		[ "$own_work_dir" -eq 1 ] && remove_work_dir "$work_dir"
+		return 1
+	fi
+
+	if ! runtime_healthy "$work_dir" 45; then
+		kill "$watchdog_pid" 2>/dev/null || true
+		wait "$watchdog_pid" 2>/dev/null || true
+		"$CLASH_INIT" stop >/dev/null 2>&1 || true
+		"$CLASH_INIT" disable >/dev/null 2>&1 || true
+		write_status error health_check_failed "SSClash health checks failed; direct networking was restored." null false
+		log_message "Guarded start failed health checks; SSClash was stopped."
+		[ "$own_work_dir" -eq 1 ] && remove_work_dir "$work_dir"
+		return 1
+	fi
+
+	touch "$confirmed"
+	kill "$watchdog_pid" 2>/dev/null || true
+	wait "$watchdog_pid" 2>/dev/null || true
+	"$CLASH_INIT" enable >/dev/null 2>&1
+	"$CLASH_RULES" update >/dev/null 2>&1 || true
+	write_status success running "Managed profile is active; DNS and proxy health checks passed." null false
+	log_message "Guarded start completed successfully."
+	[ "$own_work_dir" -eq 1 ] && remove_work_dir "$work_dir"
+	return 0
+}
+
+perform_sync() {
+	local start_after="${1:-0}"
+
+	if ! acquire_lock; then
+		write_status error busy "Another managed profile operation is already running." null false
+		print_status
+		return 1
+	fi
+
+	local work_dir
+	work_dir="$(mktemp -d /tmp/ssclash-profile-sync.XXXXXX)" || {
+		release_lock
+		return 1
+	}
+	chmod 700 "$work_dir"
+	CLEANUP_DIR="$work_dir"
+	trap cleanup_operation EXIT INT TERM
+
+	local url user_agent hwid device_os device_model controller dns_listen dns_mode
+	url="$(config_value url)"
+	user_agent="$(config_value user_agent mihomo/1.19.29)"
+	hwid="$(config_value hwid)"
+	device_os="$(config_value device_os OpenWrt)"
+	device_model="$(resolve_device_model)"
+	dns_listen="$(config_value dns_listen 127.0.0.1:7874)"
+	dns_mode="$(config_value dns_mode preserve)"
+
+	chmod 600 "$PROFILE_CONFIG" 2>/dev/null || true
+	if ! validate_url "$url"; then
+		write_status error invalid_url "A valid HTTPS subscription URL is required." null false
+		print_status
+		return 1
+	fi
+	if ! validate_header_value "$user_agent" 256 ||
+		! validate_header_value "$hwid" 512 ||
+		! validate_header_value "$device_os" 256 ||
+		! validate_header_value "$device_model" 256; then
+		write_status error invalid_header "A subscription request header contains an invalid value." null false
+		print_status
+		return 1
+	fi
+	if ! controller="$(resolve_controller)"; then
+		write_status error controller_unavailable "A private controller address could not be derived from the LAN interface." null false
+		print_status
+		return 1
+	fi
+	case "$dns_mode" in
+		preserve|redir-host|fake-ip) ;;
+		*)
+			write_status error invalid_dns_mode "The protected DNS mode is invalid." null false
+			print_status
+			return 1
+			;;
+	esac
+
+	write_status working downloading "Downloading and validating the managed profile." null false
+	umask 077
+	if ! fetch_profile "$work_dir/remote.yaml" "$url" "$user_agent" "$hwid" "$device_os" "$device_model" "$work_dir/curl-error"; then
+		write_status error download_failed "The remote profile could not be downloaded." null false
+		print_status
+		return 1
+	fi
+
+	if ! "$MERGER" \
+		-remote "$work_dir/remote.yaml" \
+		-current "$ACTIVE_CONFIG" \
+		-output "$work_dir/generated.yaml" \
+		-controller "$controller" \
+		-dns-listen "$dns_listen" \
+		-dns-mode "$dns_mode" \
+		>"$work_dir/summary.json" 2>"$work_dir/merge-error"; then
+		write_status error merge_failed "The remote YAML failed policy or overlay validation." null false
+		print_status
+		return 1
+	fi
+
+	mkdir -p /opt/clash/managed-providers/proxies /opt/clash/managed-providers/rules
+	chmod 700 /opt/clash/managed-providers /opt/clash/managed-providers/proxies /opt/clash/managed-providers/rules
+	if ! "$CLASH" -t -d /opt/clash -f "$work_dir/generated.yaml" >"$work_dir/clash-test" 2>&1; then
+		write_status error config_invalid "Mihomo rejected the generated router configuration." null false
+		print_status
+		return 1
+	fi
+
+	local summary
+	summary="$(cat "$work_dir/summary.json")"
+	if cmp -s "$work_dir/generated.yaml" "$ACTIVE_CONFIG"; then
+		write_status success unchanged "The managed profile is already current." "$summary" false
+		if [ "$start_after" = "1" ] && ! is_clash_running; then
+			guarded_start "$work_dir" || {
+				print_status
+				return 1
+			}
+		fi
+		print_status
+		return 0
+	fi
+
+	mkdir -p "$BACKUP_DIR"
+	chmod 700 "$BACKUP_DIR"
+	local stamp backup was_running restart_required
+	stamp="$(date +%Y%m%d-%H%M%S).$$"
+	backup="$BACKUP_DIR/config.yaml.$stamp"
+	was_running=0
+	is_clash_running && was_running=1
+	restart_required="$(jsonfilter -i "$work_dir/summary.json" -e '@.runtime_restart_required' 2>/dev/null)"
+	[ "$restart_required" = "true" ] || restart_required=false
+
+	if ! install_candidate "$work_dir/generated.yaml" "$backup"; then
+		write_status error install_failed "The generated profile could not be installed." "$summary" false
+		print_status
+		return 1
+	fi
+
+	if [ "$was_running" -eq 1 ]; then
+		if [ "$restart_required" = "true" ]; then
+			"$CLASH_INIT" stop >/dev/null 2>&1 || true
+			if ! guarded_start "$work_dir"; then
+				restore_backup "$backup" || true
+				if guarded_start "$work_dir"; then
+					write_status error restart_failed "The new profile required a restart and failed; the previous profile was restored and restarted." "$summary" false
+				else
+					"$CLASH_INIT" stop >/dev/null 2>&1 || true
+					"$CLASH_INIT" disable >/dev/null 2>&1 || true
+					write_status error recovery_failed "The new profile failed and the previous service could not be restarted; direct networking was restored." "$summary" false
+				fi
+				print_status
+				return 1
+			fi
+		else
+			if ! reload_running_core "$work_dir"; then
+				restore_backup "$backup" || true
+				reload_running_core "$work_dir" || {
+					"$CLASH_INIT" stop >/dev/null 2>&1 || true
+					"$CLASH_INIT" disable >/dev/null 2>&1 || true
+				}
+				write_status error reload_failed "Hot reload failed; the previous profile was restored." "$summary" false
+				print_status
+				return 1
+			fi
+
+			sleep 2
+			if ! runtime_healthy "$work_dir" 30; then
+				restore_backup "$backup" || true
+				reload_running_core "$work_dir" || {
+					"$CLASH_INIT" stop >/dev/null 2>&1 || true
+					"$CLASH_INIT" disable >/dev/null 2>&1 || true
+				}
+				write_status error health_check_failed "Post-reload checks failed; the previous profile was restored." "$summary" false
+				print_status
+				return 1
+			fi
+			"$CLASH_RULES" update >/dev/null 2>&1 || true
+		fi
+	fi
+
+	if [ "$start_after" = "1" ] && [ "$was_running" -eq 0 ]; then
+		if ! guarded_start "$work_dir"; then
+			restore_backup "$backup" || true
+			write_status error start_failed "The new profile failed guarded startup; the previous file was restored." "$summary" false
+			print_status
+			return 1
+		fi
+	fi
+
+	rotate_backups
+	jsonfilter -i "$work_dir/summary.json" -e '@.source_sha256' > "$SOURCE_HASH_FILE.tmp" 2>/dev/null || true
+	if [ -s "$SOURCE_HASH_FILE.tmp" ]; then
+		chmod 600 "$SOURCE_HASH_FILE.tmp"
+		mv "$SOURCE_HASH_FILE.tmp" "$SOURCE_HASH_FILE"
+	else
+		rm -f "$SOURCE_HASH_FILE.tmp"
+	fi
+
+	write_status success updated "The managed profile was validated and applied." "$summary" true
+	print_status
+	log_message "Managed profile updated successfully."
+	return 0
+}
+
+daemon_loop() {
+	sleep 60
+	while true; do
+		if [ "$(config_value enabled 0)" = "1" ] && [ -n "$(config_value url)" ]; then
+			"$SELF" sync >/dev/null 2>&1 || true
+		fi
+		sleep "$(validated_interval)"
+	done
+}
+
+case "${1:-status}" in
+	status)
+		print_status
+		;;
+	sync)
+		perform_sync 0
+		;;
+	sync-start)
+		perform_sync 1
+		;;
+	start-guarded)
+		if ! acquire_lock; then
+			write_status error busy "Another managed profile operation is already running." null false
+			print_status
+			exit 1
+		fi
+		work_dir="$(mktemp -d /tmp/ssclash-guarded-start.XXXXXX)" || {
+			release_lock
+			exit 1
+		}
+		chmod 700 "$work_dir"
+		CLEANUP_DIR="$work_dir"
+		trap cleanup_operation EXIT INT TERM
+		guarded_start "$work_dir"
+		print_status
+		;;
+	daemon)
+		daemon_loop
+		;;
+	*)
+		echo "Usage: $SELF {status|sync|sync-start|start-guarded|daemon}" >&2
+		exit 2
+		;;
+esac

@@ -9,6 +9,19 @@
 
 # Setup Guide
 
+## Managed full-profile subscriptions
+
+SSClash can download a complete Mihomo or Remnawave YAML profile directly
+from the Configuration page. Nodes, groups, rule providers, and ordered rules
+come from the remote profile, while router-critical TProxy, DNS, and
+controller settings remain protected locally.
+
+Candidates are parsed, tested with Mihomo, installed atomically, and
+hot-reloaded with post-apply health checks and automatic rollback. See
+[Managed full-profile subscriptions](docs/managed-full-profile.md) for the
+trust boundary, LuCI workflow, fake-IP policy, recovery procedure, and
+architecture-specific package requirements.
+
 # Autoinstall script
 
 Installs or updates all dependencies, luci-app-ssclash and Mihomo core.
