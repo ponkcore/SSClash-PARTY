@@ -184,7 +184,10 @@ jobs:
           target_name="$(printf '%s' '${{ matrix.target }}' | tr '/' '-')"
           output="dist/${source_stem}-openwrt-${{ matrix.version }}-${target_name}-${{ matrix.package-arch }}.${{ matrix.package-format }}"
           cp "$source_package" "$output"
-          sha256sum "$output" > "${output}.sha256"
+          (
+            cd dist
+            sha256sum "$(basename "$output")"
+          ) > "${output}.sha256"
 
           inspect_root="$(mktemp -d)"
           trap 'rm -rf "$inspect_root"' EXIT
