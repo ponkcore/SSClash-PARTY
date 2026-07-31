@@ -146,9 +146,46 @@ Clash, если пользователь намеренно остановил �
 
 ## Быстрый старт
 
-### 1. Определите сборку роутера
+### Автоматическая установка — рекомендуемый способ
 
-Выполните на роутере с OpenWrt:
+Подключитесь к роутеру с OpenWrt по SSH как `root` и вставьте одну команду:
+
+```sh
+wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh install
+```
+
+Граница `&&` гарантирует, что shell запустится только после полной успешной
+загрузки файла. PARTY не поддерживает передачу незавершённого сетевого потока
+напрямую в `sh`.
+
+Установщик сначала выполняет диагностику только для чтения. Он выбирает пакет
+только при точном совпадении версии, target и архитектуры OpenWrt, ищет
+конфликтующие прокси, проверяет ресурсы и нативный пакетный менеджер, а затем
+сверяет checksum каждого файла. Закреплённое ядро Mihomo устанавливается
+только при отсутствии рабочего ядра. Установщик никогда не прошивает OpenWrt
+и не удаляет другие прокси-клиенты.
+
+После первой установки Clash остаётся остановленным и отключённым от
+автозапуска, пока вы не добавите конфигурацию. При обновлении PARTY сохраняются
+активный профиль, состояние сервиса и автозапуска.
+
+Чтобы получить только отчёт о совместимости и ничего не устанавливать:
+
+```sh
+wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh doctor
+```
+
+> [!IMPORTANT]
+> Автоматическая установка означает точное сопоставление, а не угадывание.
+> Неподдерживаемая прошивка, target, архитектура, firewall, нехватка ресурсов
+> или конфликтующий прокси-пакет приводят к безопасной остановке до постоянных
+> изменений.
+
+Подробности приведены в [контракте безопасности установщика](docs/installer.md).
+
+### Ручная установка пакета
+
+Если вы предпочитаете ручную установку, сначала определите сборку роутера:
 
 ```sh
 . /etc/openwrt_release
@@ -160,8 +197,6 @@ printf 'Release: %s\nTarget: %s\nArchitecture: %s\n' \
 [GitHub Releases](https://github.com/ponkcore/SSClash-PARTY/releases), только
 если все значения совпадают с описанием релизного артефакта.
 
-### 2. Проверьте и установите пакет
-
 Загрузите один пакет и соседний файл `.sha256` в `/tmp` на роутере. Для APK на
 OpenWrt 25.12:
 
@@ -169,7 +204,7 @@ OpenWrt 25.12:
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.apk.sha256
 apk update
-apk add --allow-untrusted ./luci-app-ssclash*.apk
+apk add --allow-untrusted --force-reinstall ./luci-app-ssclash*.apk
 ```
 
 Для IPK на OpenWrt 24.10:
@@ -178,23 +213,20 @@ apk add --allow-untrusted ./luci-app-ssclash*.apk
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.ipk.sha256
 opkg update
-opkg install ./luci-app-ssclash*.ipk
+opkg install --force-reinstall ./luci-app-ssclash*.ipk
 ```
 
-> [!WARNING]
-> Не запускайте upstream-скрипт автоустановки SSClash поверх PARTY. Он
-> устанавливает официальные upstream-пакеты и может заменить файлы PARTY.
+Явная переустановка необходима, если upstream SSClash или предыдущая ревизия
+PARTY имеет ту же версию пакета OpenWrt, но другой downstream-код.
 
 Имя пакета остаётся `luci-app-ssclash`, поэтому PARTY обновляет существующую
 установку SSClash, а не создаёт два сервиса, конкурирующих за межсетевой экран,
 DNS, контроллер и пути внутри `/opt/clash`.
 
-### 3. Установите Mihomo
+При ручной установке откройте **Services → SSClash → Settings → Mihomo Kernel
+Management** и установите совместимое ядро, если его ещё нет.
 
-Откройте **Services → SSClash → Settings → Mihomo Kernel Management**,
-загрузите совместимое ядро и перезапустите сервис после установки.
-
-### 4. Примените конфигурацию
+### Примените конфигурацию
 
 Откройте **Services → SSClash → Configuration**:
 
@@ -280,6 +312,7 @@ GLOBAL by mode**.
 
 | Документ | Назначение |
 |---|---|
+| [Safe automatic installer](docs/installer.md) | Установка одной командой, локальная диагностика устройства, точное сопоставление, manifests, checksums, конфликты и релизный контракт |
 | [Configuration sources](docs/configuration-sources.md) | Полный пользовательский контракт режимов Subscription, Proxy links и Manual YAML, шаблонов, хранения и отката |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Граница доверия, guarded start, DNS-режимы, панель, UCI-настройки и восстановление |
 | [PARTY downstream policy](PARTY.md) | Контракты совместимости, веток, релизов, приватности и отношений с upstream |

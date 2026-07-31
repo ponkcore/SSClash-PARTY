@@ -145,9 +145,43 @@ your router.
 
 ## Quick start
 
-### 1. Identify the router build
+### Automatic installation — recommended
 
-Run this on the OpenWrt router:
+Connect to the OpenWrt router over SSH as `root` and paste this single command:
+
+```sh
+wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh install
+```
+
+The `&&` boundary downloads the complete installer before execution. PARTY
+does not support piping a live network response directly into `sh`.
+
+The installer runs its read-only doctor first, selects only an exact published
+OpenWrt release/target/architecture match, detects proxy conflicts, checks
+resources and the native package manager, and verifies every package checksum.
+It installs the pinned Mihomo core only when a valid core is missing. It never
+flashes firmware or removes another proxy stack.
+
+On a first installation, Clash remains stopped and disabled until you add a
+configuration. Existing PARTY upgrades preserve the active profile and the
+previous running and boot-enabled state.
+
+Run only the compatibility report without installing anything:
+
+```sh
+wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh doctor
+```
+
+> [!IMPORTANT]
+> Automatic means exact matching, not guessing. An unsupported firmware,
+> target, architecture, firewall, resource level, or conflicting proxy package
+> causes a safe stop before persistent changes.
+
+See the complete [installer safety and release contract](docs/installer.md).
+
+### Manual package installation
+
+If you prefer manual installation, identify the router build first:
 
 ```sh
 . /etc/openwrt_release
@@ -159,8 +193,6 @@ Choose an artifact from
 [GitHub Releases](https://github.com/ponkcore/SSClash-PARTY/releases) only when
 all values match its release description.
 
-### 2. Verify and install the package
-
 Download one package and its adjacent `.sha256` file to `/tmp` on the router.
 For OpenWrt 25.12 APK packages:
 
@@ -168,7 +200,7 @@ For OpenWrt 25.12 APK packages:
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.apk.sha256
 apk update
-apk add --allow-untrusted ./luci-app-ssclash*.apk
+apk add --allow-untrusted --force-reinstall ./luci-app-ssclash*.apk
 ```
 
 For OpenWrt 24.10 IPK packages:
@@ -177,23 +209,20 @@ For OpenWrt 24.10 IPK packages:
 cd /tmp
 sha256sum -c ./luci-app-ssclash*.ipk.sha256
 opkg update
-opkg install ./luci-app-ssclash*.ipk
+opkg install --force-reinstall ./luci-app-ssclash*.ipk
 ```
 
-> [!WARNING]
-> Do not run the upstream SSClash autoinstall script over PARTY. It installs
-> upstream release packages and can replace downstream files.
+The explicit reinstall is required when upstream SSClash or an earlier PARTY
+revision has the same OpenWrt package version but different downstream files.
 
 The package name remains `luci-app-ssclash`, so PARTY upgrades an existing
 SSClash installation instead of creating two services that compete for the
 same firewall, DNS, controller, and `/opt/clash` paths.
 
-### 3. Install Mihomo
+When installing manually, open **Services → SSClash → Settings → Mihomo Kernel
+Management** and install a compatible core if one is not already present.
 
-Open **Services → SSClash → Settings → Mihomo Kernel Management**, download a
-compatible core, and restart the service after installation.
-
-### 4. Apply a configuration
+### Apply a configuration
 
 Open **Services → SSClash → Configuration**:
 
@@ -274,6 +303,7 @@ must therefore match the artifact exactly.
 
 | Document | Purpose |
 |---|---|
+| [Safe automatic installer](docs/installer.md) | One-command setup, local device detection, exact matching, manifests, checksums, conflicts, and release contract |
 | [Configuration sources](docs/configuration-sources.md) | Complete user contract for Subscription, Proxy links, Manual YAML, templates, storage, and rollback |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Trust boundary, guarded start, DNS modes, dashboard behavior, UCI settings, and recovery |
 | [PARTY downstream policy](PARTY.md) | Compatibility, branch, release, privacy, and upstream relationship contracts |

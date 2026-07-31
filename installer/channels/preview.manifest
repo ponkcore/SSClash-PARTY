@@ -1,0 +1,7 @@
+# SSClash PARTY installer manifest. Fields are pipe-delimited and never sourced.
+manifest|1|preview|v4.7.0-party.3|4.7.0-party.3
+package|25.12.5|mediatek/filogic|aarch64_cortex-a53|apk|luci-app-ssclash-4.7.0-r5-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk|a82bafd1e7af5400e885d7e69c99e7cdb1e02f58fcc10a893775fe7af24fab2e|70000|40000|131072|fw4|ci-and-live-tested|cudy,wbr3000uax-v1-ubootmod
+package|25.12.5|x86/64|x86_64|apk|luci-app-ssclash-4.7.0-r5-openwrt-25.12.5-x86-64-x86_64.apk|85096a21d64481a3e6e99449c20a245622635993d19ba91a569913b9beb1e2d4|70000|40000|131072|fw4|ci-tested|
+package|24.10.8|x86/64|x86_64|ipk|luci-app-ssclash_4.7.0-r5_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk|0736645b4c7c7b921572cff64c9b819c2ddab8883df50bffa7d264aea702fae2|70000|40000|131072|fw4|ci-tested|
+core|arm64|v1.19.29|mihomo-linux-arm64-v1.19.29.gz|9a868b5e4e0ad91d9d71e1b41b0cfce78aaba44360c30df74a723f8e3926a86c|16051759
+core|amd64-compatible|v1.19.29|mihomo-linux-amd64-compatible-v1.19.29.gz|5612e698e96c8b8ad15abc4c0a4f098eba9234354b4f248cb97f2528e215b094|17881563

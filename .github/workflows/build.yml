@@ -70,21 +70,32 @@ jobs:
 
       - name: Check OpenWrt shell and LuCI sources
         run: |
+          sh -n install-ssclash.sh
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync
           sh -n luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
+          shellcheck -s sh install-ssclash.sh
           shellcheck -s sh -e SC2034,SC3043 \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
+          bash -n scripts/build-installer-manifest.sh
           bash -n scripts/write-minimal-sdk-config.sh
           bash -n scripts/check-package-scripts.sh
+          bash -n tests/installer/test-installer.sh
           bash -n tests/profile-sync/fake-command
           bash -n tests/profile-sync/test-profile-sync.sh
           shellcheck -s bash \
+            scripts/build-installer-manifest.sh \
             scripts/write-minimal-sdk-config.sh \
             scripts/check-package-scripts.sh \
+            tests/installer/test-installer.sh \
             tests/profile-sync/fake-command \
             tests/profile-sync/test-profile-sync.sh
+          (
+            cd installer/channels
+            sha256sum --check --strict preview.manifest.sha256
+          )
           scripts/check-package-scripts.sh
+          tests/installer/test-installer.sh
           tests/profile-sync/test-profile-sync.sh
           node --check \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js
@@ -331,7 +342,28 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Build installer release assets
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          scripts/build-installer-manifest.sh \
+            release \
+            "$RELEASE_TAG" \
+            preview \
+            release/ssclash-party-preview-manifest
+          install -m 0755 \
+            install-ssclash.sh \
+            release/ssclash-party-install.sh
+          (
+            cd release
+            sha256sum ssclash-party-install.sh > \
+              ssclash-party-install.sh.sha256
+          )
+
       - name: Create release notes
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           {
             echo "## SSClash PARTY preview"
@@ -344,6 +376,12 @@ jobs:
             echo "Every package is architecture-specific because it includes the profile merger."
             echo "Install only the artifact matching the OpenWrt version and package architecture."
             echo "Verify the package with its adjacent .sha256 file before installation."
+            echo
+            echo "The recommended installer performs exact device matching and verifies every payload:"
+            echo
+            echo '```sh'
+            echo "wget -qO /tmp/ssclash-party-install.sh https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh install"
+            echo '```'
           } > release-notes.md
 
       - name: Publish prerelease
