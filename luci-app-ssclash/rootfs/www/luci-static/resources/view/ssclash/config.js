@@ -232,33 +232,43 @@ async function initializeAceEditor(content) {
 // SECTION: SSClash version / update footer helpers
 // =============================================================================
 
-// Keep in sync with luci-app-ssclash/Makefile PKG_VERSION
-const SSCLASH_VERSION = '4.7.0';
+// Keep in sync with the PARTY release tag.
+const SSCLASH_VERSION = '4.7.0-party.1';
 
-const SSCLASH_REPO = 'zerolabnet/SSClash';
+const SSCLASH_REPO = 'ponkcore/SSClash-PARTY';
 const SSCLASH_RELEASES_URL = 'https://github.com/' + SSCLASH_REPO + '/releases';
-const SSCLASH_LATEST_API  = 'https://api.github.com/repos/' + SSCLASH_REPO + '/releases/latest';
+const SSCLASH_RELEASES_API = 'https://api.github.com/repos/' + SSCLASH_REPO + '/releases?per_page=20';
+const SSCLASH_MAINTAINER_URL = 'https://github.com/ponkcore';
+const SSCLASH_UPSTREAM_URL = 'https://github.com/zerolabnet/SSClash';
 const SSCLASH_AUTHOR_URL  = 'https://zerolab.net';
 const SSCLASH_DONATE_URL  = 'https://zerolab.net/donate/';
 
 function parseSemver(s) {
-    const m = (s || '').match(/v?(\d+)\.(\d+)\.(\d+)/);
-    return m ? [+m[1], +m[2], +m[3]] : null;
+    const m = (s || '').match(/^v?(\d+)\.(\d+)\.(\d+)(?:-party\.(\d+))?$/i);
+    return m ? [+m[1], +m[2], +m[3], +(m[4] || 0)] : null;
 }
 
 function cmpSemver(a, b) {
     const pa = parseSemver(a), pb = parseSemver(b);
     if (!pa || !pb) return 0;
-    for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+    for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
     return 0;
 }
 
 async function getLatestSSClashRelease() {
     try {
-        const resp = await fetch(SSCLASH_LATEST_API);
+        const resp = await fetch(SSCLASH_RELEASES_API);
         if (!resp.ok) return null;
-        const d = await resp.json();
-        if (d.prerelease) return null;
+        const releases = await resp.json();
+        if (!Array.isArray(releases)) return null;
+        const candidates = releases.filter(function(release) {
+            return release && !release.draft && parseSemver(release.tag_name);
+        });
+        candidates.sort(function(a, b) {
+            return cmpSemver(b.tag_name, a.tag_name);
+        });
+        const d = candidates[0];
+        if (!d) return null;
         return { version: d.tag_name, url: d.html_url || SSCLASH_RELEASES_URL };
     } catch (_e) {
         return null;
@@ -807,10 +817,17 @@ return view.extend({
             'id': 'ssclash-version-footer',
             'style': 'margin-top: 20px; padding: 10px 0; border-top: 1px solid rgba(127,127,127,0.15); text-align: center; font-size: 11px; color: #999;'
         }, [
-            E('span', {}, 'SSClash v' + SSCLASH_VERSION),
+            E('span', {}, 'SSClash PARTY ' + SSCLASH_VERSION),
             dot(),
             E('span', {}, [
-                'by ',
+                'downstream by ',
+                E('a', { 'href': SSCLASH_MAINTAINER_URL, 'target': '_blank', 'rel': 'noopener' }, 'ponkcore')
+            ]),
+            dot(),
+            E('span', {}, [
+                'based on ',
+                E('a', { 'href': SSCLASH_UPSTREAM_URL, 'target': '_blank', 'rel': 'noopener' }, 'SSClash'),
+                ' by ',
                 E('a', { 'href': SSCLASH_AUTHOR_URL, 'target': '_blank', 'rel': 'noopener' }, 'ZeroChaos')
             ]),
             dot(),

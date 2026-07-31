@@ -272,12 +272,15 @@ jobs:
       - name: Create release notes
         run: |
           {
-            echo "## SSClash managed full-profile preview"
+            echo "## SSClash PARTY preview"
             echo
-            echo "This is an independent preview build, not an official zerolabnet release."
+            echo "This is an independent downstream build, not an official zerolabnet release."
+            echo
+            echo "It adds guarded complete-profile synchronization, validation, health checks, and rollback."
             echo
             echo "Every package is architecture-specific because it includes the profile merger."
             echo "Install only the artifact matching the OpenWrt version and package architecture."
+            echo "Verify the package with its adjacent .sha256 file before installation."
           } > release-notes.md
 
       - name: Publish prerelease

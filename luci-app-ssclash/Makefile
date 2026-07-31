@@ -9,9 +9,9 @@ PKG_RELEASE:=2
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
-PKG_URL:=https://github.com/zerolabnet/SSClash
+PKG_URL:=https://github.com/ponkcore/SSClash-PARTY
 
-LUCI_TITLE:=LuCI Support for SSClash
+LUCI_TITLE:=LuCI Support for SSClash PARTY
 LUCI_DEPENDS:= \
 	+luci-base \
 	+coreutils-base64 \
@@ -67,7 +67,7 @@ endchoice
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI interface for SSClash, including transactional full-profile
+	LuCI interface for SSClash PARTY, including transactional full-profile
 	subscription synchronization for Mihomo.
 endef
 
