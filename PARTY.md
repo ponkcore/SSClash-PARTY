@@ -143,8 +143,8 @@ channel-specific manifests and installer sidecars.
 The router-integration and saved-profile revision is:
 
 ```text
-Git tag:         v4.7.0-party.4
-OpenWrt package: luci-app-ssclash 4.7.0-r6
+Git tag:         v4.7.0-party.5
+OpenWrt package: luci-app-ssclash 4.7.0-r7
 ```
 
 It migrates the original single subscription into a named profile, preserves

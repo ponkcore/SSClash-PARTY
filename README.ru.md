@@ -151,7 +151,7 @@ Integration**. Выбор redir-host/fake-IP, TPROXY/TUN, портов, routing 
 ## Поддерживаемые пакеты
 
 Текущая публичная предварительная версия
-[`v4.7.0-party.4`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.4)
+[`v4.7.0-party.5`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.5)
 содержит следующие архитектурно-зависимые пакеты:
 
 | Версия OpenWrt | Target | Пакетная архитектура | Формат | Уровень проверки |

@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -153,6 +153,7 @@ define Package/$(PKG_NAME)/install
 	$(CP) ./rootfs/www/luci-static/resources/view/ssclash/* $(1)/www/luci-static/resources/view/ssclash/
 	$(INSTALL_DATA) ./rootfs/www/ssclash-party-index.html $(1)/www/
 	$(INSTALL_DATA) ./rootfs/www/ssclash-party-host.js $(1)/www/
+	ln -s /opt/clash/ui $(1)/www/party-dashboard
 
 	$(INSTALL_DIR) $(1)/opt/clash/lst
 
@@ -185,7 +186,7 @@ fi
 if [ -f /usr/share/ssclash-party/VERSION ]; then
 	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
 	case "$$detected_version" in
-		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4)
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5)
 			PREVIOUS_PARTY_VERSION="$$detected_version"
 			;;
 	esac

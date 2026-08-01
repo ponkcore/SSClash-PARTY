@@ -11,7 +11,7 @@ DNSMASQ_INIT=${SSCLASH_DNSMASQ_INIT:-/etc/init.d/dnsmasq}
 UHTTPD_INIT=${SSCLASH_UHTTPD_INIT:-/etc/init.d/uhttpd}
 RESTART_DELAY=${SSCLASH_PANEL_RESTART_DELAY:-1}
 INDEX_NAME=ssclash-party-index.html
-UI_ALIAS=/party-dashboard=/opt/clash/ui
+LEGACY_UI_ALIAS=/party-dashboard=/opt/clash/ui
 
 router_value() {
 	local option="$1"
@@ -21,10 +21,19 @@ router_value() {
 	[ -n "$result" ] && printf '%s\n' "$result" || printf '%s\n' "$fallback"
 }
 
-resolve_lan_device() {
-	local interface device
+resolve_lan_interface() {
+	local interface
 	interface="$(uci -q get ssclash_profile.main.lan_interface)"
 	[ -n "$interface" ] || interface=lan
+	case "$interface" in
+		''|*[!A-Za-z0-9_.:-]*) return 1 ;;
+	esac
+	printf '%s\n' "$interface"
+}
+
+resolve_lan_device() {
+	local interface device
+	interface="$(resolve_lan_interface)" || return 1
 	device="$(ubus -S call "network.interface.$interface" status 2>/dev/null |
 		jsonfilter -e '@.l3_device' 2>/dev/null)"
 	[ -n "$device" ] || device="$(uci -q get "network.$interface.device")"
@@ -35,6 +44,27 @@ resolve_lan_device() {
 	printf '%s\n' "$device"
 }
 
+resolve_lan_dhcp_section() {
+	local interface="$1"
+	local configured key line section
+	while IFS= read -r line; do
+		case "$line" in
+			dhcp.*=dhcp)
+				key="${line%%=*}"
+				section="${key#dhcp.}"
+				configured="$(uci -q get "dhcp.$section.interface")"
+				if [ "$configured" = "$interface" ]; then
+					printf '%s\n' "$section"
+					return 0
+				fi
+				;;
+		esac
+	done <<-EOF
+	$(uci -q show dhcp 2>/dev/null)
+	EOF
+	return 1
+}
+
 state_value() {
 	local key="$1"
 	[ -r "$STATE_FILE" ] || return 0
@@ -43,9 +73,18 @@ state_value() {
 
 remove_dns_record() {
 	local hostname="$1"
-	local device="$2"
-	[ -n "$hostname" ] && [ -n "$device" ] || return 0
-	uci -q del_list "dhcp.@dnsmasq[0].interface_name=$hostname,$device" 2>/dev/null || true
+	local dhcp_section="$2"
+	local device="$3"
+	[ -n "$hostname" ] || return 0
+	if [ -n "$dhcp_section" ]; then
+		uci -q del_list "dhcp.$dhcp_section.interface_name=$hostname" 2>/dev/null || true
+	fi
+	# PARTY.4 stored this option on the global dnsmasq section. OpenWrt only
+	# consumes interface_name from a DHCP interface section, so remove that
+	# inert legacy value while upgrading.
+	if [ -n "$device" ]; then
+		uci -q del_list "dhcp.@dnsmasq[0].interface_name=$hostname,$device" 2>/dev/null || true
+	fi
 }
 
 remove_word() {
@@ -73,25 +112,27 @@ configure_index() {
 	done
 }
 
-configure_alias() {
-	local enabled="$1"
-	uci -q del_list "uhttpd.main.alias=$UI_ALIAS" 2>/dev/null || true
-	if [ "$enabled" = 1 ]; then
-		uci -q add_list "uhttpd.main.alias=$UI_ALIAS" || return 1
-	fi
-	return 0
+remove_legacy_alias() {
+	# PARTY.4 used uHTTPd's URL rewrite option as a filesystem alias. It
+	# prepended the target to the original URL and therefore always returned
+	# 404. The package now owns /www/party-dashboard as a static symlink.
+	uci -q del_list "uhttpd.main.alias=$LEGACY_UI_ALIAS" 2>/dev/null || true
 }
 
 write_state() {
 	local enabled="$1"
 	local hostname="$2"
-	local device="$3"
+	local interface="$3"
+	local dhcp_section="$4"
+	local device="$5"
 	mkdir -p "$STATE_DIR" || return 1
 	chmod 700 "$STATE_DIR" 2>/dev/null || true
 	umask 077
 	{
 		printf 'enabled=%s\n' "$enabled"
 		printf 'hostname=%s\n' "$hostname"
+		printf 'interface=%s\n' "$interface"
+		printf 'dhcp_section=%s\n' "$dhcp_section"
 		printf 'device=%s\n' "$device"
 	} > "$STATE_FILE.tmp" || return 1
 	mv "$STATE_FILE.tmp" "$STATE_FILE"
@@ -106,7 +147,8 @@ restart_services() {
 }
 
 apply_panel() {
-	local enabled hostname device old_hostname old_device
+	local enabled hostname interface dhcp_section device
+	local old_hostname old_dhcp_section old_device
 	enabled="$(router_value panel_enabled 1)"
 	hostname="$(router_value panel_hostname panel.router)"
 	case "$hostname" in
@@ -115,44 +157,54 @@ apply_panel() {
 			return 1
 			;;
 	esac
+	interface="$(resolve_lan_interface)" || {
+		printf '%s\n' '{"ok":false,"code":"lan_interface_unavailable"}'
+		return 1
+	}
 	device="$(resolve_lan_device)" || {
 		printf '%s\n' '{"ok":false,"code":"lan_device_unavailable"}'
 		return 1
 	}
+	dhcp_section="$(resolve_lan_dhcp_section "$interface")" || {
+		printf '%s\n' '{"ok":false,"code":"lan_dhcp_section_unavailable"}'
+		return 1
+	}
 	old_hostname="$(state_value hostname)"
+	old_dhcp_section="$(state_value dhcp_section)"
 	old_device="$(state_value device)"
 
-	remove_dns_record "$old_hostname" "$old_device"
-	remove_dns_record "$hostname" "$device"
+	remove_dns_record "$old_hostname" "$old_dhcp_section" "$old_device"
+	remove_dns_record "$old_hostname" "$dhcp_section" "$old_device"
+	remove_dns_record "$hostname" "$dhcp_section" "$device"
 	case "$enabled" in
 		1)
-			uci -q add_list "dhcp.@dnsmasq[0].interface_name=$hostname,$device" || return 1
+			uci -q add_list "dhcp.$dhcp_section.interface_name=$hostname" || return 1
 			configure_index 1 || return 1
-			configure_alias 1 || return 1
 			;;
 		*)
 			enabled=0
 			configure_index 0 || return 1
-			configure_alias 0 || return 1
 			;;
 	esac
+	remove_legacy_alias
 	uci -q commit dhcp || return 1
 	uci -q commit uhttpd || return 1
 	printf 'window.SSCLASH_PARTY_PANEL_HOST = "%s";\n' "$hostname" > "$HOST_CONFIG.tmp" || return 1
 	chmod 644 "$HOST_CONFIG.tmp" || return 1
 	mv "$HOST_CONFIG.tmp" "$HOST_CONFIG" || return 1
-	write_state "$enabled" "$hostname" "$device" || return 1
+	write_state "$enabled" "$hostname" "$interface" "$dhcp_section" "$device" || return 1
 	restart_services || return 1
 	printf '{"ok":true,"enabled":%s,"hostname":"%s"}\n' "$enabled" "$hostname"
 }
 
 remove_panel() {
-	local hostname device
+	local hostname dhcp_section device
 	hostname="$(state_value hostname)"
+	dhcp_section="$(state_value dhcp_section)"
 	device="$(state_value device)"
-	remove_dns_record "$hostname" "$device"
+	remove_dns_record "$hostname" "$dhcp_section" "$device"
 	configure_index 0
-	configure_alias 0
+	remove_legacy_alias
 	uci -q commit dhcp 2>/dev/null || true
 	uci -q commit uhttpd 2>/dev/null || true
 	rm -f "$STATE_FILE"

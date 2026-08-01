@@ -397,12 +397,14 @@ jobs:
           test -x "$router_helper"
           test -f "$inspect_root/www/ssclash-party-index.html"
           test -f "$inspect_root/www/ssclash-party-host.js"
+          test -L "$inspect_root/www/party-dashboard"
+          test "$(readlink "$inspect_root/www/party-dashboard")" = /opt/clash/ui
           test -f "$inspect_root/www/luci-static/resources/view/ssclash/dashboard.js"
           test -f "$inspect_root/www/luci-static/resources/view/ssclash/router.js"
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.4
+          test "$(cat "$party_version")" = 4.7.0-party.5
           jq -e \
             '.schema_version == 1 and any(.templates[]; .id == "russia")' \
             "$template_catalog" >/dev/null

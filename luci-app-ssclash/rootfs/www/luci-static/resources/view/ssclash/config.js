@@ -218,7 +218,7 @@ async function initializeAceEditor(content, readOnly) {
 // =============================================================================
 
 // Keep in sync with the PARTY release tag.
-const SSCLASH_VERSION = '4.7.0-party.4';
+const SSCLASH_VERSION = '4.7.0-party.5';
 
 const SSCLASH_REPO = 'ponkcore/SSClash-PARTY';
 const SSCLASH_RELEASES_URL = 'https://github.com/' + SSCLASH_REPO + '/releases';

@@ -184,10 +184,20 @@ printf '%s\n' \
     'ssclash_profile.router.panel_hostname=panel.router' \
     'network.lan.device=br-lan' \
     'dhcp.@dnsmasq[0]=dnsmasq' \
+    'dhcp.@dnsmasq[0].interface_name=legacy.router,br-lan' \
+    'dhcp.lan=dhcp' \
+    'dhcp.lan.interface=lan' \
     'uhttpd.main=uhttpd' \
     'uhttpd.main.index_page=cgi-bin/luci index.html' \
+    'uhttpd.main.alias=/party-dashboard=/opt/clash/ui' \
     > "$state"
 : > "$service_calls"
+mkdir -p "$panel_state"
+printf '%s\n' \
+    'enabled=1' \
+    'hostname=legacy.router' \
+    'device=br-lan' \
+    > "$panel_state/panel.state"
 run_panel() {
     PATH="$fake_bin:$PATH" \
     FAKE_UCI_STATE="$state" \
@@ -200,18 +210,27 @@ run_panel() {
         "$panel_helper" "$1"
 }
 run_panel apply | jq -e '.ok == true and .enabled == 1 and .hostname == "panel.router"' >/dev/null
-grep -Fqx 'dhcp.@dnsmasq[0].interface_name=panel.router,br-lan' "$state"
+grep -Fqx 'dhcp.lan.interface_name=panel.router' "$state"
+if grep -Fq 'dhcp.@dnsmasq[0].interface_name=legacy.router,br-lan' "$state"; then
+    printf 'The inert PARTY.4 global interface_name value was not removed.\n' >&2
+    exit 1
+fi
 grep -Fqx 'uhttpd.main.index_page=ssclash-party-index.html cgi-bin/luci index.html' "$state"
-grep -Fqx 'uhttpd.main.alias=/party-dashboard=/opt/clash/ui' "$state"
+if grep -Fq 'uhttpd.main.alias=/party-dashboard=/opt/clash/ui' "$state"; then
+    printf 'The broken PARTY.4 uHTTPd rewrite remains after migration.\n' >&2
+    exit 1
+fi
+grep -Fq "ln -s /opt/clash/ui \$(1)/www/party-dashboard" \
+    "$repo_root/luci-app-ssclash/Makefile"
 grep -Fq 'panel.router' "$panel_host_config"
 
 sed -i 's/ssclash_profile.router.panel_hostname=panel.router/ssclash_profile.router.panel_hostname=party.router/' "$state"
 run_panel apply >/dev/null
-if grep -Fq 'interface_name=panel.router,br-lan' "$state"; then
+if grep -Fq 'dhcp.lan.interface_name=panel.router' "$state"; then
     printf 'The previous friendly panel DNS record was not removed.\n' >&2
     exit 1
 fi
-grep -Fqx 'dhcp.@dnsmasq[0].interface_name=party.router,br-lan' "$state"
+grep -Fqx 'dhcp.lan.interface_name=party.router' "$state"
 [[ "$(awk -F= '$1 == "uhttpd.main.index_page" { print $2 }' "$state")" == 'ssclash-party-index.html cgi-bin/luci index.html' ]]
 
 sed -i 's/ssclash_profile.router.panel_enabled=1/ssclash_profile.router.panel_enabled=0/' "$state"
@@ -219,7 +238,7 @@ if ! run_panel apply > "$temporary_root/panel-disable.json"; then
     printf 'Disabling the friendly panel integration failed.\n' >&2
     exit 1
 fi
-if grep -q '^dhcp\.@dnsmasq\[0\]\.interface_name=' "$state"; then
+if grep -q '^dhcp\.lan\.interface_name=' "$state"; then
     printf 'A friendly panel DNS record remains after disabling the feature.\n' >&2
     exit 1
 fi
