@@ -40,7 +40,7 @@ base_environment=(
 output=$("${base_environment[@]}" sh "$installer" doctor 2>&1)
 assert_contains "$output" 'Doctor result: supported and safe to continue.'
 assert_contains "$output" 'Device support: live-tested board'
-assert_contains "$output" 'luci-app-ssclash-4.7.0-r5-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
+assert_contains "$output" 'luci-app-ssclash-4.7.0-r7-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk'
 assert_contains "$output" 'mihomo-linux-arm64-v1.19.29.gz'
 
 output=$("${base_environment[@]}" \
@@ -51,7 +51,7 @@ output=$("${base_environment[@]}" \
     SSCLASH_PARTY_TEST_PACKAGE_MANAGER=opkg \
     SSCLASH_PARTY_TEST_MANAGER_ARCH=x86_64 \
     sh "$installer" doctor 2>&1)
-assert_contains "$output" 'luci-app-ssclash_4.7.0-r5_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk'
+assert_contains "$output" 'luci-app-ssclash_4.7.0-r7_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk'
 assert_contains "$output" 'mihomo-linux-amd64-compatible-v1.19.29.gz'
 
 if output=$("${base_environment[@]}" \
@@ -96,17 +96,17 @@ cp "$manifest" "$api_payload/ssclash-party-preview-manifest"
         ssclash-party-preview-manifest.sha256
 )
 printf '%s\n' \
-    '[{"assets":[{"browser_download_url":"https://github.com/ponkcore/SSClash-PARTY/releases/download/v9.0.0-party.1/ssclash-party-stable-manifest"}]},{"assets":[{"browser_download_url":"https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.3/ssclash-party-preview-manifest"}]}]' \
+    '[{"assets":[{"browser_download_url":"https://github.com/ponkcore/SSClash-PARTY/releases/download/v9.0.0-party.1/ssclash-party-stable-manifest"}]},{"assets":[{"browser_download_url":"https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.5/ssclash-party-preview-manifest"}]}]' \
     > "$api_payload/releases?per_page=20"
 output=$("${base_environment[@]}" \
     SSCLASH_PARTY_TEST_MANIFEST= \
     SSCLASH_PARTY_TEST_PAYLOAD_DIR="$api_payload" \
     sh "$installer" doctor 2>&1)
-assert_contains "$output" '/v4.7.0-party.3/ssclash-party-preview-manifest'
+assert_contains "$output" '/v4.7.0-party.5/ssclash-party-preview-manifest'
 
 output=$("${base_environment[@]}" \
     SSCLASH_PARTY_TEST_INSTALLED_PACKAGES=luci-app-ssclash \
-    SSCLASH_PARTY_TEST_CURRENT_PARTY_VERSION=4.7.0-party.3 \
+    SSCLASH_PARTY_TEST_CURRENT_PARTY_VERSION=4.7.0-party.5 \
     SSCLASH_PARTY_TEST_MERGER_PRESENT=1 \
     SSCLASH_PARTY_TEST_CORE_PRESENT=1 \
     "SSCLASH_PARTY_TEST_CORE_VERSION=Mihomo Meta v1.19.29" \
@@ -158,7 +158,7 @@ fi
 assert_contains "$output" 'Malformed package record in manifest'
 
 unsafe_tag_manifest="$temporary/unsafe-tag.manifest"
-sed 's/^manifest|1|preview|[^|]*|/manifest|1|preview|v4.7.0-party.3;unsafe|/' \
+sed 's/^manifest|1|preview|[^|]*|/manifest|1|preview|v4.7.0-party.5;unsafe|/' \
     "$manifest" > "$unsafe_tag_manifest"
 (
     cd "$temporary"
