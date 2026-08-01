@@ -14,10 +14,11 @@ adaptive subscriptions, local proxy links combined with trusted templates,
 and complete manual YAML. See
 [Configuration sources](docs/configuration-sources.md).
 
-The fourth preview adds named subscription profiles, a router-owned LuCI
-integration page for deliberate DNS and transport changes, a guarded fake-IP
-compatibility wizard, and an authenticated `ROUTER_IP/party/` entry point that
-does not depend on browser DNS behavior. An optional local hostname remains a
+The fourth preview added named subscription profiles, a router-owned LuCI
+integration page for deliberate DNS and transport changes, and a guarded
+fake-IP compatibility wizard. The fifth preview makes
+`ROUTER_IP/party/` the authenticated dashboard entry so browser DNS behavior
+cannot break the primary workflow; an optional local hostname remains a
 secondary convenience. PARTY keeps profile storage separate from activation
 and still activates only one subscription at a time.
 
