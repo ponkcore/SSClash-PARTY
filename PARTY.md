@@ -64,6 +64,30 @@ quality and package matrix before it advances `party`.
 The detailed procedure is in
 [Upstream synchronization](docs/upstream-sync.md).
 
+## CI scope contract
+
+GitHub Actions classifies every pushed or pull-request change before choosing
+its validation scope.
+
+A change is documentation-only only when every changed path is one of:
+
+- a Markdown file anywhere in the repository;
+- any file below `docs/`;
+- a GitHub issue or pull-request template.
+
+Documentation-only changes run local-link, whitespace, and full-tree secret
+checks plus the final policy gate. Go, integration, and OpenWrt SDK package
+jobs are skipped. Any other path, a mixed documentation/source change, an
+empty or unavailable comparison range, and every manual workflow dispatch run
+the complete quality and three-package matrix. Workflow, classifier, installer,
+manifest, packaging, LuCI, shell, Go, and test changes are therefore always
+full-matrix changes.
+
+This optimization is not permission to hide a source change under `docs/` or
+a `.md` filename. Files that affect generated or installed package behavior
+must remain outside the documentation allowlist. Release publication is always
+manual and always requires the full matrix.
+
 ## Release contract
 
 PARTY release tags use the form:

@@ -30,6 +30,23 @@ branch unless a task explicitly extends an earlier feature branch.
 Disable pushes to the `upstream` remote locally. Only `origin` is a publication
 target.
 
+## CI validation scope
+
+The workflow has a conservative path classifier. Pure Markdown, `docs/`, and
+GitHub issue/pull-request-template changes receive fast documentation,
+whitespace, secret, and policy-gate checks without compiling OpenWrt packages.
+Any non-documentation path, mixed change, unknown range, or manual dispatch
+receives the complete static/unit and three-package matrix.
+
+The classifier evaluates the actual pushed range. A documentation-only
+follow-up does not rebuild packages whose source tree is unchanged. The later
+merge into `party` is classified against the previous `party` commit, so any
+source change in the integrated range still triggers the complete matrix.
+
+Never relocate package inputs, generated configuration, executable scripts, or
+tests into the documentation allowlist to avoid validation. Changes to the
+workflow or classifier themselves are full-matrix changes.
+
 ## Mirroring upstream
 
 Fetch both repositories and require a fast-forward update of the mirror:
