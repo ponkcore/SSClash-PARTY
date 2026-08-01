@@ -9,7 +9,8 @@
     (function () {
       var host = String(window.location.hostname || '').toLowerCase().replace(/\.$/, '');
       var panelHost = String(window.SSCLASH_PARTY_PANEL_HOST || 'panel.router').toLowerCase();
-      var target = host === panelHost
+      var partyPath = /^\/party(?:\/|$)/.test(String(window.location.pathname || ''));
+      var target = host === panelHost || partyPath
         ? '/cgi-bin/luci/admin/services/ssclash/dashboard'
         : '/cgi-bin/luci/';
       window.location.replace(target);

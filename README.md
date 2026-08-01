@@ -145,7 +145,7 @@ path.
 | Guarded activation | Mihomo validation, atomic replacement, post-apply health checks, and rollback |
 | Router Integration | Deliberate redir-host/fake-IP selection, compatibility filters, TPROXY/TUN controls, routing-loop prevention, and controller settings stay protected from subscriptions |
 | Remnawave compatibility | Client negotiation and optional stable HWID headers without creating new identities on device-limit errors |
-| Friendly authenticated panel | `http://panel.router` uses the ordinary LuCI login and then opens packaged Zashboard without putting the controller token in an HTTP request path |
+| DNS-independent panel entry | `http://ROUTER_IP/party/` uses the ordinary LuCI login and then opens packaged Zashboard without a port, local DNS, or a controller token in the HTTP request path |
 | LuCI workflow | Source selection, status, logs, local rulesets, service control, Mihomo management, and authenticated Zashboard access |
 | Template catalog | The initial **Russia** policy template contains public rule providers and no proxy credentials or router secrets |
 
@@ -264,11 +264,14 @@ fake-IP and, when needed, adjust advanced transport and controller values.
 Use the compatibility-and-apply action; do not edit generated YAML for these
 managed settings.
 
-When Friendly panel address is enabled, browse to `http://panel.router` from a
-LAN client. An unauthenticated browser first sees the normal LuCI login. After
-successful login, the same request continues directly to Zashboard. This is
-plain LAN HTTP by default, so browsers correctly label it **Not secure**; the
-Mihomo controller still requires its private token.
+Browse to `http://ROUTER_IP/party/` from a LAN client. For example, the path is
+`http://192.168.10.1/party/` when that is the router's LAN address. A browser
+cannot mistake the numeric path for a search, and Secure DNS is not involved.
+An unauthenticated browser first sees the normal LuCI login; after successful
+login, the same request continues directly to Zashboard. Plain LAN HTTP is
+labelled **Not secure**, while the Mihomo controller still requires its private
+token. An optional dnsmasq hostname remains available, but it is not the
+recommended entry because browser search heuristics and DoH can bypass it.
 
 ## Technical trust boundary
 
@@ -317,9 +320,9 @@ can hide it with **Display GLOBAL by mode**.
 ### Why does the controller URL return HTTP 401?
 
 The bare `http://ROUTER_IP:9090/` endpoint is the authenticated Mihomo API, not
-the dashboard landing page. Use `http://panel.router` or **Open Dashboard** in
-LuCI. The friendly address authenticates through LuCI first and then opens the
-packaged Zashboard with protected fragment-based connection parameters.
+the dashboard landing page. Use `http://ROUTER_IP/party/` or **Open Dashboard**
+in LuCI. The `/party/` entry authenticates through LuCI first and then opens
+the packaged Zashboard with protected fragment-based connection parameters.
 
 ### Can I save and switch between several subscriptions?
 
@@ -351,7 +354,7 @@ must therefore match the artifact exactly.
 |---|---|
 | [Safe automatic installer](docs/installer.md) | One-command setup, local device detection, exact matching, manifests, checksums, conflicts, and release contract |
 | [Configuration sources](docs/configuration-sources.md) | Complete user contract for Subscription, Proxy links, Manual YAML, templates, storage, and rollback |
-| [Router Integration and friendly dashboard](docs/router-integration.md) | redir-host/fake-IP, compatibility checks, transparent transport, controller protection, and `panel.router` login flow |
+| [Router Integration and dashboard entry](docs/router-integration.md) | redir-host/fake-IP, compatibility checks, transparent transport, controller protection, and the DNS-independent `/party/` login flow |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Trust boundary, guarded start, DNS modes, dashboard behavior, UCI settings, and recovery |
 | [PARTY downstream policy](PARTY.md) | Compatibility, branch, release, privacy, and upstream relationship contracts |
 | [Upstream synchronization](docs/upstream-sync.md) | Maintainer workflow for reviewing and integrating upstream changes |

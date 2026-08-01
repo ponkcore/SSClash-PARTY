@@ -197,7 +197,7 @@ ensure_router() {
 		*) set_value ssclash_profile.router.store_fake_ip 0 ;;
 	esac
 
-	set_default ssclash_profile.router.panel_enabled 1
+	set_default ssclash_profile.router.panel_enabled 0
 	set_default ssclash_profile.router.panel_hostname panel.router
 	if [ "$created" -eq 1 ]; then
 		while IFS= read -r detected; do

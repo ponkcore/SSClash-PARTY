@@ -129,7 +129,7 @@ required_filter_missing_count() {
 	local filters panel panel_enabled required missing=0
 	filters="$(value "$PENDING_SECTION" fake_ip_filter)"
 	panel="$(value "$PENDING_SECTION" panel_hostname panel.router)"
-	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 1)"
+	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 0)"
 	for required in '*.lan' '*.local'; do
 		case " $filters " in
 			*" $required "*) ;;
@@ -170,7 +170,7 @@ preflight() {
 	controller_mode="$(value "$PENDING_SECTION" controller_mode auto)"
 	controller_host="$(value "$PENDING_SECTION" controller_host)"
 	controller_port="$(value "$PENDING_SECTION" controller_port 9090)"
-	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 1)"
+	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 0)"
 	panel_hostname="$(value "$PENDING_SECTION" panel_hostname panel.router)"
 
 	case "$dns_mode" in redir-host|fake-ip) ;; *) blockers=$((blockers + 1)) ;; esac
@@ -248,7 +248,7 @@ apply_safe_corrections() {
 	local panel panel_enabled
 	[ "$(uci -q get "ssclash_profile.$PENDING_SECTION" 2>/dev/null)" = router ] || return 1
 	panel="$(value "$PENDING_SECTION" panel_hostname panel.router)"
-	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 1)"
+	panel_enabled="$(value "$PENDING_SECTION" panel_enabled 0)"
 	add_filter_if_missing '*.lan' || return 1
 	add_filter_if_missing '*.local' || return 1
 	if [ "$panel_enabled" = 1 ]; then
@@ -331,7 +331,7 @@ apply_pending() {
 		uci -q commit ssclash_profile 2>/dev/null || true
 		"$PANEL_HELPER" apply >/dev/null 2>&1 || true
 		rm -f "$backup"
-		json_result false panel_apply_failed "The friendly panel integration could not be applied; the previous router settings were restored." 1 0 0
+		json_result false panel_apply_failed "The optional panel DNS alias could not be applied; the previous router settings were restored." 1 0 0
 		return 1
 	fi
 

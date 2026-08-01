@@ -143,7 +143,7 @@ Integration**. Выбор redir-host/fake-IP, TPROXY/TUN, портов, routing 
 | Сохранённые профили | Именные подписки можно сохранять, проверять и безопасно переключать |
 | Защищённая активация | Проверка Mihomo, атомарная замена, проверка работоспособности после применения и откат |
 | Router Integration | redir-host/fake-IP, TPROXY/TUN, порты, routing mark и контроллер задаются локально и не передаются подписке |
-| Удобный адрес панели | `http://panel.router` сначала использует обычный вход LuCI, затем открывает Zashboard без токена в HTTP-пути |
+| Панель без зависимости от DNS | `http://ROUTER_IP/party/` сначала использует обычный вход LuCI, затем открывает Zashboard без порта, локального DNS и токена в HTTP-пути |
 | Совместимость с Remnawave | Переговоры о формате и необязательный стабильный HWID без создания новых идентификаторов при исчерпанном лимите устройств |
 | Работа через LuCI | Выбор источника, статус, логи, локальные наборы правил, управление сервисом и Mihomo, защищённый доступ к Zashboard |
 | Каталог шаблонов | Первый шаблон **Russia** содержит публичные `rule-providers` и не содержит прокси-данных или секретов роутера |
@@ -262,11 +262,13 @@ Management** и установите совместимое ядро, если �
 Одно только сохранение настроек источника не заменяет активный профиль.
 
 Параметры DNS, fake-IP, прозрачного транспорта и контроллера меняются через
-**Services → SSClash → Router Integration**. При включённом Friendly panel
-address адрес `http://panel.router` сначала показывает обычный вход LuCI, а
-после авторизации сразу открывает Zashboard. Это локальный HTTP, поэтому
-пометка браузера **Not secure** ожидаема; API Mihomo по-прежнему защищён
-токеном.
+**Services → SSClash → Router Integration**. Открывайте
+`http://ROUTER_IP/party/`, например `http://192.168.10.1/party/`: числовой
+адрес с путём браузер не превратит в поисковый запрос, а Secure DNS на него не
+влияет. Сначала появится обычный вход LuCI, после авторизации сразу откроется
+Zashboard. Для локального HTTP пометка **Not secure** ожидаема; API Mihomo
+по-прежнему защищён токеном. Необязательный dnsmasq-alias остаётся доступен,
+но не рекомендуется как основной вход из-за поиска в адресной строке и DoH.
 
 ## Техническая граница доверия
 
@@ -316,7 +318,7 @@ GLOBAL by mode**.
 ### Почему адрес контроллера возвращает HTTP 401?
 
 Корневой адрес `http://ROUTER_IP:9090/` — это аутентифицированный API Mihomo, а
-не стартовая страница панели. Используйте `http://panel.router` или кнопку
+не стартовая страница панели. Используйте `http://ROUTER_IP/party/` или кнопку
 **Open Dashboard** в LuCI: после входа LuCI откроет встроенный Zashboard с
 защищёнными параметрами подключения во фрагменте URL.
 
@@ -350,7 +352,7 @@ GLOBAL by mode**.
 |---|---|
 | [Safe automatic installer](docs/installer.md) | Установка одной командой, локальная диагностика устройства, точное сопоставление, manifests, checksums, конфликты и релизный контракт |
 | [Configuration sources](docs/configuration-sources.md) | Полный пользовательский контракт режимов Subscription, Proxy links и Manual YAML, шаблонов, хранения и отката |
-| [Router Integration and friendly dashboard](docs/router-integration.md) | redir-host/fake-IP, проверки совместимости, прозрачный транспорт, защита контроллера и вход через `panel.router` |
+| [Router Integration and dashboard entry](docs/router-integration.md) | redir-host/fake-IP, проверки совместимости, прозрачный транспорт, защита контроллера и вход через DNS-независимый путь `/party/` |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Граница доверия, guarded start, DNS-режимы, панель, UCI-настройки и восстановление |
 | [PARTY downstream policy](PARTY.md) | Контракты совместимости, веток, релизов, приватности и отношений с upstream |
 | [Upstream synchronization](docs/upstream-sync.md) | Процесс проверки и интеграции upstream-изменений для сопровождающих проекта |

@@ -452,7 +452,7 @@ source_settings_revision() {
 		printf 'controller_host=%s\n' "$(router_value controller_host)"
 		printf 'controller_port=%s\n' "$(router_value controller_port 9090)"
 		printf 'controller_secret=%s\n' "$(router_value controller_secret)"
-		printf 'panel_enabled=%s\n' "$(router_value panel_enabled 1)"
+		printf 'panel_enabled=%s\n' "$(router_value panel_enabled 0)"
 		printf 'panel_hostname=%s\n' "$(router_value panel_hostname panel.router)"
 	} | sha256sum | awk '{print $1}'
 }
@@ -1115,7 +1115,7 @@ perform_sync() {
 	tun_stack="$(router_value tun_stack system)"
 	ipv6_enabled="$(router_value ipv6_enabled 0)"
 	controller_secret="$(router_value controller_secret)"
-	panel_enabled="$(router_value panel_enabled 1)"
+	panel_enabled="$(router_value panel_enabled 0)"
 	panel_hostname="$(router_value panel_hostname panel.router)"
 
 	chmod 600 "$PROFILE_CONFIG" 2>/dev/null || true
@@ -1193,7 +1193,7 @@ perform_sync() {
 		1|true) ;;
 		0|false) panel_hostname= ;;
 		*)
-			write_status error invalid_panel_mode "The friendly panel enable setting is invalid." null false
+			write_status error invalid_panel_mode "The optional panel DNS alias setting is invalid." null false
 			print_status
 			return 1
 			;;

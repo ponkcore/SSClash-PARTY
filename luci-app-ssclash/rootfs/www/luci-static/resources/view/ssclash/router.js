@@ -146,7 +146,7 @@ return view.extend({
             'min': '1024', 'max': '65535', 'step': '1'
         });
         const rotateSecret = input('checkbox', false);
-        const panelEnabled = input('checkbox', get('panel_enabled', '1') === '1');
+        const panelEnabled = input('checkbox', get('panel_enabled', '0') === '1');
         const panelHostname = input('text', get('panel_hostname', 'panel.router'), {
             'placeholder': 'panel.router'
         });
@@ -287,10 +287,17 @@ return view.extend({
             fieldRow(_('Controller secret'), E('label', {
                 'style': 'display: inline-flex; gap: 8px; align-items: center;'
             }, [ rotateSecret, E('span', {}, _('Rotate the secret during this activation (the value is never displayed)')) ])),
-            fieldRow(_('Friendly panel address'), E('label', {
+            fieldRow(_('Dashboard entry'), E('div', {}, [
+                E('a', {
+                    'class': 'btn',
+                    'href': '/party/'
+                }, _('Open /party/ dashboard entry')),
+                E('p', {}, _('This DNS-independent address uses the current router IP, LuCI login, and no visible port.'))
+            ])),
+            fieldRow(_('Optional DNS alias'), E('label', {
                 'style': 'display: inline-flex; gap: 8px; align-items: center;'
-            }, [ panelEnabled, E('span', {}, _('Publish the dashboard on the LAN without a visible port')) ])),
-            fieldRow(_('Panel hostname'), panelHostname, _('Default: http://panel.router. HTTP is LAN-local and browsers will label it Not secure.'))
+            }, [ panelEnabled, E('span', {}, _('Also publish a local hostname through dnsmasq')) ])),
+            fieldRow(_('Optional panel hostname'), panelHostname, _('Browsers or Secure DNS may treat local names as searches. Prefer ROUTER_IP/party. HTTP is LAN-local and browsers will label it Not secure.'))
         ]);
 
         const applyButton = E('button', {

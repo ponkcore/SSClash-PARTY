@@ -85,6 +85,7 @@ grep -Fqx 'ssclash_profile.router.routing_mark=12' "$state"
 grep -Fqx 'ssclash_profile.router.tun_stack=gvisor' "$state"
 grep -Fqx 'ssclash_profile.router.controller_mode=auto' "$state"
 grep -Fqx 'ssclash_profile.router.controller_port=9191' "$state"
+grep -Fqx 'ssclash_profile.router.panel_enabled=0' "$state"
 if grep -Eq '^ssclash_profile\.main\.(enabled|url|interval|user_agent|hwid|device_os|device_model|controller|controller_port|dns_listen|dns_mode)=' "$state"; then
     printf 'Migrated legacy options remain duplicated in the globals section.\n' >&2
     exit 1

@@ -153,6 +153,8 @@ define Package/$(PKG_NAME)/install
 	$(CP) ./rootfs/www/luci-static/resources/view/ssclash/* $(1)/www/luci-static/resources/view/ssclash/
 	$(INSTALL_DATA) ./rootfs/www/ssclash-party-index.html $(1)/www/
 	$(INSTALL_DATA) ./rootfs/www/ssclash-party-host.js $(1)/www/
+	$(INSTALL_DIR) $(1)/www/party
+	$(INSTALL_DATA) ./rootfs/www/ssclash-party-index.html $(1)/www/party/index.html
 	ln -s /opt/clash/ui $(1)/www/party-dashboard
 
 	$(INSTALL_DIR) $(1)/opt/clash/lst

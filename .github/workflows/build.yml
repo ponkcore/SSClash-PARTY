@@ -397,6 +397,7 @@ jobs:
           test -x "$router_helper"
           test -f "$inspect_root/www/ssclash-party-index.html"
           test -f "$inspect_root/www/ssclash-party-host.js"
+          test -f "$inspect_root/www/party/index.html"
           test -L "$inspect_root/www/party-dashboard"
           test "$(readlink "$inspect_root/www/party-dashboard")" = /opt/clash/ui
           test -f "$inspect_root/www/luci-static/resources/view/ssclash/dashboard.js"
@@ -539,7 +540,7 @@ jobs:
             echo
             echo "This is an independent downstream build, not an official zerolabnet release."
             echo
-            echo "It adds three configuration sources, saved subscription profiles, router-owned DNS and transport controls, and authenticated panel.router access."
+            echo "It adds three configuration sources, saved subscription profiles, router-owned DNS and transport controls, and a DNS-independent authenticated dashboard entry."
             echo "Managed candidates use Mihomo validation, transactional activation, health checks, and rollback."
             echo
             echo "Every package is architecture-specific because it includes the profile merger."

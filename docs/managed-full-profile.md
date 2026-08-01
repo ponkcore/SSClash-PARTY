@@ -148,8 +148,8 @@ overlay. Its DNS selector exposes:
 
 When fake-IP is selected, PARTY checks the configured IPv4 CIDR against
 current routes, validates filter mode and persistence, and requires `*.lan`
-and `*.local` to bypass fake addressing. The friendly panel hostname is also
-required while panel publication is enabled. The UI can add missing mandatory
+and `*.local` to bypass fake addressing. The optional panel hostname is also
+required while its DNS alias is enabled. The UI can add missing mandatory
 exclusions before the actual activation. Mihomo
 validation, guarded restart, health checks, and rollback still apply.
 
@@ -170,14 +170,15 @@ active configuration and opens the packaged dashboard setup route. Connection
 parameters are placed after the URL fragment marker (`#`), so the browser does
 not send the secret in the HTTP request path.
 
-With Friendly panel address enabled, `http://panel.router` resolves to the
-router's current LAN address through dnsmasq. An unauthenticated request opens
-the standard LuCI login; after successful authentication, LuCI continues to
-the protected dashboard route and then Zashboard. Direct
+The recommended `http://ROUTER_IP/party/` entry needs no DNS. An
+unauthenticated request opens the standard LuCI login; after successful
+authentication, LuCI continues to the protected dashboard route and then
+Zashboard. An optional local hostname can be published through dnsmasq, but
+browser search heuristics and Secure DNS make it less reliable. Direct
 `http://ROUTER_IP:9090/` remains a token-protected API endpoint and correctly
-returns HTTP 401 without authorization. The friendly address is ordinary LAN
-HTTP unless the operator configures HTTPS separately, so browser **Not
-secure** labeling is expected.
+returns HTTP 401 without authorization. The dashboard entry is ordinary LAN
+HTTP unless the operator configures HTTPS separately, so browser **Not secure**
+labeling is expected.
 
 The controller must remain authenticated. Removing the secret would allow LAN
 clients to inspect connections, change selectors, or invoke other controller
@@ -218,7 +219,8 @@ The package installs this file with mode `0600`.
 | `router.routing_mark` | `2` | Mihomo loop-prevention mark |
 | `router.controller_mode` | `auto` | Follow the current LAN address or use a private override |
 | `router.controller_port` | `9090` | Protected controller port |
-| `router.panel_hostname` | `panel.router` | Friendly LAN dashboard hostname |
+| `router.panel_enabled` | `0` | Optional dnsmasq hostname; `/party/` remains available |
+| `router.panel_hostname` | `panel.router` | Optional LAN hostname; prefer `ROUTER_IP/party/` |
 | `main.lan_interface` | `lan` | Logical interface used for controller and panel derivation |
 | `main.health_url_primary` | Google 204 endpoint | Primary HTTPS proxy probe |
 | `main.health_url_secondary` | Cloudflare 204 endpoint | Fallback HTTPS proxy probe |

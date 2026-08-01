@@ -222,12 +222,16 @@ if grep -Fq 'uhttpd.main.alias=/party-dashboard=/opt/clash/ui' "$state"; then
 fi
 grep -Fq "ln -s /opt/clash/ui \$(1)/www/party-dashboard" \
     "$repo_root/luci-app-ssclash/Makefile"
+grep -Fq "ssclash-party-index.html \$(1)/www/party/index.html" \
+    "$repo_root/luci-app-ssclash/Makefile"
+grep -Fq "partyPath" \
+    "$repo_root/luci-app-ssclash/rootfs/www/ssclash-party-index.html"
 grep -Fq 'panel.router' "$panel_host_config"
 
 sed -i 's/ssclash_profile.router.panel_hostname=panel.router/ssclash_profile.router.panel_hostname=party.router/' "$state"
 run_panel apply >/dev/null
 if grep -Fq 'dhcp.lan.interface_name=panel.router' "$state"; then
-    printf 'The previous friendly panel DNS record was not removed.\n' >&2
+    printf 'The previous optional panel DNS record was not removed.\n' >&2
     exit 1
 fi
 grep -Fqx 'dhcp.lan.interface_name=party.router' "$state"
@@ -235,11 +239,11 @@ grep -Fqx 'dhcp.lan.interface_name=party.router' "$state"
 
 sed -i 's/ssclash_profile.router.panel_enabled=1/ssclash_profile.router.panel_enabled=0/' "$state"
 if ! run_panel apply > "$temporary_root/panel-disable.json"; then
-    printf 'Disabling the friendly panel integration failed.\n' >&2
+    printf 'Disabling the optional panel DNS alias failed.\n' >&2
     exit 1
 fi
 if grep -q '^dhcp\.lan\.interface_name=' "$state"; then
-    printf 'A friendly panel DNS record remains after disabling the feature.\n' >&2
+    printf 'An optional panel DNS record remains after disabling the feature.\n' >&2
     exit 1
 fi
 [[ "$(awk -F= '$1 == "uhttpd.main.index_page" { print $2 }' "$state")" == 'cgi-bin/luci index.html' ]]
@@ -247,5 +251,9 @@ if grep -q '^uhttpd\.main\.alias=' "$state"; then
     printf 'The dashboard uHTTPd alias remains after disabling the feature.\n' >&2
     exit 1
 fi
+
+sed -i '/^dhcp\.lan/d' "$state"
+rm -f "$panel_state/panel.state"
+run_panel apply | jq -e '.ok == true and .enabled == 0' >/dev/null
 
 printf 'router integration and panel tests passed\n'

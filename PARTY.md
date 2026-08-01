@@ -16,9 +16,10 @@ and complete manual YAML. See
 
 The fourth preview adds named subscription profiles, a router-owned LuCI
 integration page for deliberate DNS and transport changes, a guarded fake-IP
-compatibility wizard, and a friendly authenticated `panel.router` entry point.
-It keeps profile storage separate from activation and still activates only one
-subscription at a time.
+compatibility wizard, and an authenticated `ROUTER_IP/party/` entry point that
+does not depend on browser DNS behavior. An optional local hostname remains a
+secondary convenience. PARTY keeps profile storage separate from activation
+and still activates only one subscription at a time.
 
 Unlike a node-only `proxy-provider`, a complete remote profile can update the
 entire policy graph: nodes, groups, rule providers, ordered rules, and their

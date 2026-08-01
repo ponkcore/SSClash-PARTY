@@ -149,7 +149,7 @@ restart_services() {
 apply_panel() {
 	local enabled hostname interface dhcp_section device
 	local old_hostname old_dhcp_section old_device
-	enabled="$(router_value panel_enabled 1)"
+	enabled="$(router_value panel_enabled 0)"
 	hostname="$(router_value panel_hostname panel.router)"
 	case "$hostname" in
 		''|.*|*.|*..*|*[!A-Za-z0-9.-]*)
@@ -157,18 +157,24 @@ apply_panel() {
 			return 1
 			;;
 	esac
-	interface="$(resolve_lan_interface)" || {
-		printf '%s\n' '{"ok":false,"code":"lan_interface_unavailable"}'
-		return 1
-	}
-	device="$(resolve_lan_device)" || {
-		printf '%s\n' '{"ok":false,"code":"lan_device_unavailable"}'
-		return 1
-	}
-	dhcp_section="$(resolve_lan_dhcp_section "$interface")" || {
-		printf '%s\n' '{"ok":false,"code":"lan_dhcp_section_unavailable"}'
-		return 1
-	}
+	interface="$(resolve_lan_interface)" || interface="$(state_value interface)"
+	device="$(resolve_lan_device)" || device="$(state_value device)"
+	dhcp_section="$(resolve_lan_dhcp_section "$interface")" ||
+		dhcp_section="$(state_value dhcp_section)"
+	if [ "$enabled" = 1 ]; then
+		[ -n "$interface" ] || {
+			printf '%s\n' '{"ok":false,"code":"lan_interface_unavailable"}'
+			return 1
+		}
+		[ -n "$device" ] || {
+			printf '%s\n' '{"ok":false,"code":"lan_device_unavailable"}'
+			return 1
+		}
+		[ -n "$dhcp_section" ] || {
+			printf '%s\n' '{"ok":false,"code":"lan_dhcp_section_unavailable"}'
+			return 1
+		}
+	fi
 	old_hostname="$(state_value hostname)"
 	old_dhcp_section="$(state_value dhcp_section)"
 	old_device="$(state_value device)"
