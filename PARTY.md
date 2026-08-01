@@ -104,6 +104,12 @@ was an internal live validation build and was never published; r5 also fixes
 first-install detection when OpenWrt starts the new init script before the
 custom post-upgrade migration runs.
 
+After PARTY.3, the `party` branch gained the safe automatic installer and its
+checksum-protected preview catalog. That work did not change the OpenWrt
+package payload, so it deliberately did not create a new package tag. The
+catalog selects the existing PARTY.3 assets; future releases publish their own
+channel-specific manifests and installer sidecars.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;

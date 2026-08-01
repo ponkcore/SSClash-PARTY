@@ -17,11 +17,15 @@ upstream  https://github.com/zerolabnet/SSClash.git
 The expected branches are:
 
 ```text
-main                            clean upstream mirror
-feature/managed-full-profile    reviewable feature implementation
-party                           tested downstream release line
-sync/upstream-YYYYMMDD          temporary integration branch
+main                    clean upstream mirror
+feature/*               isolated, reviewable downstream work
+party                   tested downstream release line
+sync/upstream-YYYYMMDD  temporary integration branch
 ```
+
+Published feature branches may remain as reviewable implementation history
+after their commits reach `party`. Start new work from the current `party`
+branch unless a task explicitly extends an earlier feature branch.
 
 Disable pushes to the `upstream` remote locally. Only `origin` is a publication
 target.
