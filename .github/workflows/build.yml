@@ -21,8 +21,99 @@ env:
   PACKAGE_NAME: luci-app-ssclash
 
 jobs:
+  changes:
+    name: Classify change scope
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select validation scope
+        id: scope
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            echo "Manual workflows always run the complete package matrix."
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          head_sha="$GITHUB_SHA"
+          base_sha=""
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            head_sha="$PR_HEAD_SHA"
+            base_sha="$PR_BASE_SHA"
+          elif [[ -n "$BEFORE_SHA" && "$BEFORE_SHA" != "$zero_sha" ]]; then
+            base_sha="$BEFORE_SHA"
+          elif [[ "$GITHUB_REF" == refs/heads/feature/* ]]; then
+            git fetch --no-tags origin party
+            base_sha="$(git merge-base "$head_sha" origin/party)"
+          elif git rev-parse --verify "${head_sha}^" >/dev/null 2>&1; then
+            base_sha="$(git rev-parse "${head_sha}^")"
+          fi
+
+          if [[ -z "$base_sha" ]] ||
+             ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null ||
+             ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
+            echo "The comparison range is unavailable; using the full matrix."
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Validation range: ${base_sha}..${head_sha}"
+          git diff --name-status "$base_sha" "$head_sha"
+          git diff --name-only -z "$base_sha" "$head_sha" |
+            scripts/classify-ci-changes.sh >> "$GITHUB_OUTPUT"
+
+  policy:
+    name: Documentation and secret policy
+    needs: changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Check documentation and whitespace
+        run: |
+          scripts/check-markdown-links.mjs
+          git diff --check "$(git merge-base HEAD origin/main)" HEAD
+
+      - name: Scan the source tree for secrets
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSLo "/tmp/${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "/tmp/${archive}" |
+            sha256sum --check --strict
+          tar -xzf "/tmp/${archive}" -C /tmp gitleaks
+          /tmp/gitleaks dir . --redact --no-banner
+
   quality:
     name: Static and unit tests
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -78,15 +169,19 @@ jobs:
             luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
           bash -n scripts/build-installer-manifest.sh
+          bash -n scripts/classify-ci-changes.sh
           bash -n scripts/write-minimal-sdk-config.sh
           bash -n scripts/check-package-scripts.sh
+          bash -n tests/ci/test-change-classifier.sh
           bash -n tests/installer/test-installer.sh
           bash -n tests/profile-sync/fake-command
           bash -n tests/profile-sync/test-profile-sync.sh
           shellcheck -s bash \
             scripts/build-installer-manifest.sh \
+            scripts/classify-ci-changes.sh \
             scripts/write-minimal-sdk-config.sh \
             scripts/check-package-scripts.sh \
+            tests/ci/test-change-classifier.sh \
             tests/installer/test-installer.sh \
             tests/profile-sync/fake-command \
             tests/profile-sync/test-profile-sync.sh
@@ -95,6 +190,7 @@ jobs:
             sha256sum --check --strict preview.manifest.sha256
           )
           scripts/check-package-scripts.sh
+          tests/ci/test-change-classifier.sh
           tests/installer/test-installer.sh
           tests/profile-sync/test-profile-sync.sh
           node --check \
@@ -103,22 +199,17 @@ jobs:
             luci-app-ssclash/rootfs/usr/share/rpcd/acl.d/luci-app-ssclash.json
           git diff --check "$(git merge-base HEAD origin/main)" HEAD
 
-      - name: Scan the source tree for secrets
-        env:
-          GITLEAKS_VERSION: "8.30.1"
-          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
-        run: |
-          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -fsSLo "/tmp/${archive}" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}"
-          printf '%s  %s\n' "$GITLEAKS_SHA256" "/tmp/${archive}" |
-            sha256sum --check --strict
-          tar -xzf "/tmp/${archive}" -C /tmp gitleaks
-          /tmp/gitleaks dir . --redact --no-banner
-
   package:
     name: OpenWrt ${{ matrix.version }} ${{ matrix.target }}
-    needs: quality
+    needs:
+      - changes
+      - policy
+      - quality
+    if: >-
+      always() &&
+      needs.changes.outputs.full == 'true' &&
+      needs.policy.result == 'success' &&
+      needs.quality.result == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -320,6 +411,39 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+
+  gate:
+    name: CI policy gate
+    needs:
+      - changes
+      - policy
+      - quality
+      - package
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify the selected validation scope
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          FULL_MATRIX: ${{ needs.changes.outputs.full }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          POLICY_RESULT: ${{ needs.policy.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+        run: |
+          set -euo pipefail
+          test "$CHANGES_RESULT" = success
+          test "$POLICY_RESULT" = success
+
+          if [[ "$FULL_MATRIX" == true ]]; then
+            test "$QUALITY_RESULT" = success
+            test "$PACKAGE_RESULT" = success
+            echo "Source-impacting change: the complete package matrix passed."
+          else
+            test "$QUALITY_RESULT" = skipped
+            test "$PACKAGE_RESULT" = skipped
+            echo "Documentation-only change: OpenWrt package builds were skipped."
+          fi
 
   release:
     name: Create preview release
