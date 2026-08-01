@@ -1,0 +1,5 @@
+#!/bin/sh
+
+/usr/libexec/ssclash-party-migrate || exit 1
+/usr/libexec/ssclash-party-panel apply >/dev/null 2>&1 || exit 1
+exit 0

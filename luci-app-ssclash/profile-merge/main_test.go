@@ -47,7 +47,7 @@ func validRemote() map[string]any {
 }
 
 func defaultPolicy() routerPolicy {
-	return routerPolicy{DNSMode: "preserve"}
+	return routerPolicy{DNSMode: "preserve", ProxyMode: "tproxy"}
 }
 
 func TestOverlayRouterSettings(t *testing.T) {
@@ -238,18 +238,14 @@ func TestRejectsUnsafeController(t *testing.T) {
 	}
 }
 
-func TestPreservesTestedFakeIPBaseline(t *testing.T) {
+func TestAppliesExplicitFakeIPPolicy(t *testing.T) {
 	current := validCurrent()
-	current["dns"] = map[string]any{
-		"enable":              true,
-		"listen":              "127.0.0.1:7874",
-		"enhanced-mode":       "fake-ip",
-		"fake-ip-range":       "198.18.0.1/16",
-		"fake-ip-filter-mode": "blacklist",
-		"fake-ip-filter":      []any{"+.lan", "+.local"},
-	}
 	policy := defaultPolicy()
 	policy.DNSMode = "fake-ip"
+	policy.FakeIPRange = "198.18.0.1/16"
+	policy.FakeIPFilterMode = "blacklist"
+	policy.FakeIPFilter = []string{"*.lan", "*.local", "panel.router"}
+	policy.StoreFakeIP = true
 
 	merged, _, _, _, err := overlayRouterSettings(validRemote(), current, policy)
 	if err != nil {
@@ -257,15 +253,111 @@ func TestPreservesTestedFakeIPBaseline(t *testing.T) {
 	}
 	dns := asMap(merged["dns"])
 	if dns["enhanced-mode"] != "fake-ip" || dns["fake-ip-range"] != "198.18.0.1/16" {
-		t.Fatalf("fake-ip baseline was not preserved: %#v", dns)
+		t.Fatalf("fake-ip policy was not applied: %#v", dns)
+	}
+	filters := stringSlice(dns["fake-ip-filter"])
+	if len(filters) != 3 || filters[2] != "panel.router" {
+		t.Fatalf("fake-ip filters were not applied: %#v", filters)
+	}
+	profile := asMap(merged["profile"])
+	if profile["store-fake-ip"] != true {
+		t.Fatalf("fake-IP persistence was not enabled: %#v", profile)
 	}
 }
 
-func TestRefusesUntestedFakeIPMigration(t *testing.T) {
+func TestRejectsInvalidFakeIPPolicy(t *testing.T) {
+	tests := []routerPolicy{
+		{DNSMode: "fake-ip", FakeIPRange: "not-a-cidr", FakeIPFilterMode: "blacklist", FakeIPFilter: []string{"*.lan"}},
+		{DNSMode: "fake-ip", FakeIPRange: "127.0.0.1/8", FakeIPFilterMode: "blacklist", FakeIPFilter: []string{"*.lan"}},
+		{DNSMode: "fake-ip", FakeIPRange: "198.18.0.1/16", FakeIPFilterMode: "invalid", FakeIPFilter: []string{"*.lan"}},
+		{DNSMode: "fake-ip", FakeIPRange: "198.18.0.1/16", FakeIPFilterMode: "blacklist"},
+	}
+	for _, policy := range tests {
+		policy.ProxyMode = "tproxy"
+		if _, _, _, _, err := overlayRouterSettings(validRemote(), validCurrent(), policy); err == nil {
+			t.Fatalf("invalid fake-IP policy was accepted: %#v", policy)
+		}
+	}
+}
+
+func TestAppliesTUNAndAdvancedRouterPolicy(t *testing.T) {
 	policy := defaultPolicy()
-	policy.DNSMode = "fake-ip"
-	if _, _, _, _, err := overlayRouterSettings(validRemote(), validCurrent(), policy); err == nil {
-		t.Fatal("fake-ip must require an existing tested baseline")
+	policy.ProxyMode = "mixed"
+	policy.TunStack = "gvisor"
+	policy.TProxyPort = 17894
+	policy.RoutingMark = 42
+	policy.ControllerSecret = "rotated-controller-secret"
+	policy.PanelHostname = "panel.router"
+
+	merged, _, _, _, err := overlayRouterSettings(validRemote(), validCurrent(), policy)
+	if err != nil {
+		t.Fatalf("overlay failed: %v", err)
+	}
+	if merged["tproxy-port"] != 17894 || merged["routing-mark"] != 42 {
+		t.Fatalf("advanced ports or marks were not applied: %#v", merged)
+	}
+	if merged["secret"] != "rotated-controller-secret" {
+		t.Fatal("controller secret override was not applied")
+	}
+	tun := asMap(merged["tun"])
+	if tun["enable"] != true || tun["stack"] != "gvisor" || tun["auto-route"] != false {
+		t.Fatalf("safe TUN policy was not applied: %#v", tun)
+	}
+	cors := asMap(merged["external-controller-cors"])
+	origins := stringSlice(cors["allow-origins"])
+	if len(origins) != 4 || origins[0] != "http://panel.router" || origins[2] != "http://192.168.10.1" {
+		t.Fatalf("unexpected controller CORS origins: %#v", origins)
+	}
+}
+
+func TestControllerCORSRetainsIPOriginWithoutFriendlyHostname(t *testing.T) {
+	policy := defaultPolicy()
+	policy.PanelHostname = ""
+
+	merged, _, _, _, err := overlayRouterSettings(validRemote(), validCurrent(), policy)
+	if err != nil {
+		t.Fatalf("overlay failed: %v", err)
+	}
+	cors := asMap(merged["external-controller-cors"])
+	origins := stringSlice(cors["allow-origins"])
+	if len(origins) != 2 || origins[0] != "http://192.168.10.1" || origins[1] != "https://192.168.10.1" {
+		t.Fatalf("unexpected controller-only CORS origins: %#v", origins)
+	}
+}
+
+func TestPureTUNRemovesRemoteTPROXYListener(t *testing.T) {
+	remote := validRemote()
+	remote["tproxy-port"] = 6553
+	policy := defaultPolicy()
+	policy.ProxyMode = "tun"
+	policy.TunStack = "system"
+
+	merged, _, _, _, err := overlayRouterSettings(remote, validCurrent(), policy)
+	if err != nil {
+		t.Fatalf("overlay failed: %v", err)
+	}
+	if _, exists := merged["tproxy-port"]; exists {
+		t.Fatal("pure TUN mode retained a remote TPROXY listener")
+	}
+	if asMap(merged["tun"])["enable"] != true {
+		t.Fatal("pure TUN mode did not enable the protected TUN listener")
+	}
+}
+
+func TestRejectsUnsafeAdvancedRouterPolicy(t *testing.T) {
+	for _, policy := range []routerPolicy{
+		{DNSMode: "preserve", ProxyMode: "bad"},
+		{DNSMode: "preserve", ProxyMode: "tproxy", TProxyPort: 70000},
+		{DNSMode: "preserve", ProxyMode: "tproxy", RoutingMark: 1},
+		{DNSMode: "preserve", ProxyMode: "tun", TunStack: "bad"},
+		{DNSMode: "preserve", ProxyMode: "tproxy", PanelHostname: "bad/host"},
+		{DNSMode: "preserve", ProxyMode: "tproxy", ControllerSecret: "bad secret"},
+		{DNSMode: "preserve", ProxyMode: "tproxy", DNSListen: "127.0.0.1:9090"},
+		{DNSMode: "preserve", ProxyMode: "tproxy", TProxyPort: 9090},
+	} {
+		if _, _, _, _, err := overlayRouterSettings(validRemote(), validCurrent(), policy); err == nil {
+			t.Fatalf("unsafe router policy was accepted: %#v", policy)
+		}
 	}
 }
 
@@ -296,6 +388,13 @@ func TestPreservesLocalFakeIPCachePolicy(t *testing.T) {
 func TestRuntimeRestartDetection(t *testing.T) {
 	current := validCurrent()
 	current["allow-lan"] = false
+	current["external-controller-cors"] = map[string]any{
+		"allow-origins": []any{
+			"http://192.168.10.1",
+			"https://192.168.10.1",
+		},
+		"allow-private-network": true,
+	}
 	current["find-process-mode"] = "off"
 	current["ipv6"] = false
 	current["routing-mark"] = 2

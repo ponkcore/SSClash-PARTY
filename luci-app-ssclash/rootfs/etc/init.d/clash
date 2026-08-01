@@ -7,6 +7,7 @@ USE_PROCD=1
 CLASH_DIR="/opt/clash"
 CLASH_BIN="${CLASH_DIR}/bin/clash"
 CLASH_RULES="${CLASH_DIR}/bin/clash-rules"
+CONFIG_FILE="${CLASH_DIR}/config.yaml"
 RULESET_TMPFS="/tmp/clash/ruleset"
 RULESET_LINK="${CLASH_DIR}/ruleset"
 PROXY_PROVIDERS_TMPFS="/tmp/clash/proxy_providers"
@@ -120,8 +121,46 @@ setup_clash_directories() {
 }
 
 # Function to configure DNS
+managed_dns_server() {
+	local listener host port source_mode
+	source_mode="$(uci -q get ssclash_profile.main.source_mode)"
+	if [ "$source_mode" = manual ] && [ -s "$CONFIG_FILE" ]; then
+		listener="$(awk '
+			/^dns:[[:space:]]*$/ { in_dns = 1; next }
+			in_dns && /^[^[:space:]]/ { exit }
+			in_dns && /^[[:space:]]+listen:[[:space:]]*/ {
+				line = $0
+				sub(/^[[:space:]]+listen:[[:space:]]*/, "", line)
+				sub(/[[:space:]]*#.*/, "", line)
+				gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", line)
+				print line
+				exit
+			}
+		' "$CONFIG_FILE" 2>/dev/null)"
+	else
+		listener="$(uci -q get ssclash_profile.router.dns_listen)"
+	fi
+	[ -n "$listener" ] || listener="127.0.0.1:7874"
+	host="${listener%:*}"
+	port="${listener##*:}"
+	case "$host" in
+		127.*) ;;
+		*) host=127.0.0.1 ;;
+	esac
+	case "$port" in
+		''|*[!0-9]*) port=7874 ;;
+		*)
+			if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+				port=7874
+			fi
+			;;
+	esac
+	printf '%s#%s\n' "$host" "$port"
+}
+
 setup_dns() {
-	local dns_server="127.0.0.1#7874"
+	local dns_server
+	dns_server="$(managed_dns_server)"
 
 	# Check if the server is already added
 	local existing_server
@@ -133,13 +172,14 @@ setup_dns() {
 	if [ ! -f "$DNS_BACKUP_FILE" ]; then
 		mkdir -p "$(dirname "$DNS_BACKUP_FILE")" 2>/dev/null
 		if [ -n "$existing_server" ]; then
-			printf 'CACHESIZE=\nNORESOLV=\n' > "$DNS_BACKUP_FILE"
+			printf 'CACHESIZE=\nNORESOLV=\nMANAGED_SERVER=%s\n' "$dns_server" > "$DNS_BACKUP_FILE"
 			msg "Detected stale DNS state from prior unclean shutdown; using safe defaults for restore"
 		else
 			local orig_cachesize orig_noresolv
 			orig_cachesize=$(uci get dhcp.@dnsmasq[0].cachesize 2>/dev/null)
 			orig_noresolv=$(uci get dhcp.@dnsmasq[0].noresolv 2>/dev/null)
-			printf 'CACHESIZE=%s\nNORESOLV=%s\n' "$orig_cachesize" "$orig_noresolv" > "$DNS_BACKUP_FILE"
+			printf 'CACHESIZE=%s\nNORESOLV=%s\nMANAGED_SERVER=%s\n' \
+				"$orig_cachesize" "$orig_noresolv" "$dns_server" > "$DNS_BACKUP_FILE"
 		fi
 	fi
 
@@ -171,7 +211,13 @@ setup_dns() {
 
 # Function to restore DNS settings
 restore_dns() {
-	local dns_server="127.0.0.1#7874"
+	local dns_server
+	dns_server="$(managed_dns_server)"
+	if [ -f "$DNS_BACKUP_FILE" ]; then
+		local recorded_server
+		recorded_server=$(grep '^MANAGED_SERVER=' "$DNS_BACKUP_FILE" | cut -d= -f2-)
+		[ -n "$recorded_server" ] && dns_server="$recorded_server"
+	fi
 
 	# Get the list of servers and remove only ours
 	local servers
@@ -334,8 +380,26 @@ service_started() {
 	# which calls `clash-rules tun_route_setup`.
 	# tun_route_watch covers the fast-respawn edge case where clash-tun is still up
 	# when procd fires this callback (interface did not disappear between respawns).
-	local proxy_mode=""
-	[ -f "$SETTINGS_FILE" ] && proxy_mode=$(grep '^PROXY_MODE=' "$SETTINGS_FILE" | cut -d= -f2 | tr -d '[:space:]')
+	local proxy_mode="" source_mode
+	source_mode=$(uci -q get ssclash_profile.main.source_mode)
+	if [ "$source_mode" = manual ]; then
+		proxy_mode=$(awk '
+			/^tproxy-port:[[:space:]]*/ { tproxy = 1 }
+			/^tun:[[:space:]]*$/ { in_tun = 1; next }
+			in_tun && /^[^[:space:]]/ { in_tun = 0 }
+			in_tun && /^[[:space:]]+enable:[[:space:]]*true([[:space:]]|$)/ { tun = 1 }
+			END {
+				if (tproxy && tun) print "mixed"
+				else if (tun) print "tun"
+				else print "tproxy"
+			}
+		' "$CONFIG_FILE" 2>/dev/null)
+	else
+		proxy_mode=$(uci -q get ssclash_profile.router.proxy_mode)
+	fi
+	[ -n "$proxy_mode" ] || {
+		[ -f "$SETTINGS_FILE" ] && proxy_mode=$(grep '^PROXY_MODE=' "$SETTINGS_FILE" | cut -d= -f2 | tr -d '[:space:]')
+	}
 	case "$proxy_mode" in
 		mixed|tun)
 			if [ -f "$CLASH_RULES" ]; then

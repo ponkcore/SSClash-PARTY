@@ -32,6 +32,72 @@ state_set() {
     mv "$temporary" "$FAKE_UCI_STATE"
 }
 
+state_delete() {
+    local key="$1"
+    local temporary="${FAKE_UCI_STATE}.tmp.$$"
+    awk -F= -v wanted="$key" '
+        $1 != wanted && index($1, wanted ".") != 1 { print }
+    ' "${FAKE_UCI_STATE:?}" > "$temporary"
+    mv "$temporary" "$FAKE_UCI_STATE"
+}
+
+state_add_list() {
+    local key="$1"
+    local value="$2"
+    local current=
+    current="$(state_get "$key" 2>/dev/null || true)"
+    state_set "$key" "${current:+$current }$value"
+}
+
+state_del_list() {
+    local key="$1"
+    local unwanted="$2"
+    local current word result=
+    current="$(state_get "$key" 2>/dev/null || true)"
+    for word in $current; do
+        [[ "$word" == "$unwanted" ]] && continue
+        result="${result:+$result }$word"
+    done
+    if [[ -n "$result" ]]; then state_set "$key" "$result"; else state_delete "$key"; fi
+}
+
+parse_uci_assignment() {
+    local assignment="$1"
+    UCI_KEY="${assignment%%=*}"
+    UCI_VALUE="${assignment#*=}"
+    if [[ "$UCI_VALUE" == \'*\' ]]; then
+        UCI_VALUE="${UCI_VALUE#\'}"
+        UCI_VALUE="${UCI_VALUE%\'}"
+        UCI_VALUE="${UCI_VALUE//\'\\\'\'/\'}"
+    fi
+}
+
+run_uci_line() {
+    local line="$1"
+    local operation assignment
+    operation="${line%% *}"
+    assignment="${line#* }"
+    case "$operation" in
+    set)
+        parse_uci_assignment "$assignment"
+        state_set "$UCI_KEY" "$UCI_VALUE"
+        ;;
+    add_list)
+        parse_uci_assignment "$assignment"
+        state_add_list "$UCI_KEY" "$UCI_VALUE"
+        ;;
+    del_list)
+        parse_uci_assignment "$assignment"
+        state_del_list "$UCI_KEY" "$UCI_VALUE"
+        ;;
+    delete)
+        state_delete "$assignment"
+        ;;
+    '') ;;
+    *) return 2 ;;
+    esac
+}
+
 case "$command_name" in
 uci)
     while [[ "${1:-}" == -* ]]; do shift; done
@@ -43,7 +109,24 @@ uci)
         ;;
     set)
         assignment="${1:?}"
-        state_set "${assignment%%=*}" "${assignment#*=}"
+        run_uci_line "set $assignment"
+        ;;
+    add_list|del_list)
+        assignment="${1:?}"
+        run_uci_line "$operation $assignment"
+        ;;
+    delete)
+        state_delete "${1:?}"
+        ;;
+    show)
+        if [[ -n "${1:-}" ]]; then
+            awk -v prefix="${1}." 'index($0, prefix) == 1 { print }' "${FAKE_UCI_STATE:?}"
+        else
+            cat "${FAKE_UCI_STATE:?}"
+        fi
+        ;;
+    batch)
+        while IFS= read -r line; do run_uci_line "$line"; done
         ;;
     commit)
         ;;
@@ -72,6 +155,13 @@ jsonfilter)
         esac
     done
     case "$expression" in
+    '@["ipv4-address"][0].address')
+        if [[ -n "$input_file" ]]; then
+            jq -r '.["ipv4-address"][0].address // empty' "$input_file"
+        else
+            jq -r '.["ipv4-address"][0].address // empty'
+        fi
+        ;;
     @.*)
         jq -r ".${expression#@.} // empty" "$input_file"
         ;;
@@ -79,6 +169,13 @@ jsonfilter)
         exit 2
         ;;
     esac
+    ;;
+
+ubus)
+    [[ "${1:-}" == -S ]]
+    shift
+    [[ "${1:-}" == call && "${2:-}" == network.interface.* && "${3:-}" == status ]]
+    printf '{"ipv4-address":[{"address":"%s"}]}\n' "${FAKE_LAN_ADDRESS:-192.168.10.1}"
     ;;
 
 curl)
@@ -104,7 +201,18 @@ curl)
             ;;
         esac
     done
-    [[ -n "$output_file" && -n "$response_headers" && -n "$request_headers" ]]
+    [[ -n "$output_file" && -n "$request_headers" ]]
+
+    if [[ -z "$response_headers" ]]; then
+        if [[ -n "${FAKE_CONTROLLER_FAIL_ONCE_FILE:-}" &&
+              ! -e "$FAKE_CONTROLLER_FAIL_ONCE_FILE" ]]; then
+            : > "$FAKE_CONTROLLER_FAIL_ONCE_FILE"
+            exit 97
+        fi
+        printf '%s\n' '{}' > "$output_file"
+        printf '200'
+        exit 0
+    fi
 
     count=0
     if [[ -s "${FAKE_CURL_COUNT:?}" ]]; then read -r count < "$FAKE_CURL_COUNT"; fi
@@ -149,6 +257,10 @@ curl)
     invalid)
         [[ "$has_hwid" == false ]] || exit 92
         printf '<!doctype html><title>unsupported response</title>\n' > "$output_file"
+        ;;
+    full)
+        [[ "$count" -eq 1 && "$has_hwid" == false ]] || exit 96
+        cp "${FAKE_FIXTURE_DIR:?}/full.yaml" "$output_file"
         ;;
     *)
         exit 93

@@ -358,6 +358,10 @@ func buildManagedProfile(options buildOptions) error {
 
 	policy := options.Policy
 	policy.TrustedLocalProviderPath = trustedProviderPath
+	policy, err = normalizeRouterPolicy(policy)
+	if err != nil {
+		return err
+	}
 	merged, normalized, normalizedCaches, generatedSecret, err := overlayRouterSettings(candidate, current, policy)
 	if err != nil {
 		return err
@@ -382,6 +386,7 @@ func buildManagedProfile(options buildOptions) error {
 		RuleProviders:             countMap(merged["rule-providers"]),
 		Rules:                     len(asSlice(merged["rules"])),
 		DNSMode:                   dnsMode(merged),
+		ProxyMode:                 policy.ProxyMode,
 		SourceSHA256:              inspection.SourceSHA256,
 		OutputSHA256:              sha256Hex(outputBytes),
 		GeneratedControllerSecret: generatedSecret,
@@ -402,6 +407,7 @@ func buildManagedProfile(options buildOptions) error {
 func runBuildCommand(arguments []string) error {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
 	var options buildOptions
+	var fakeIPFilters repeatedStringFlag
 	flags.StringVar(&options.InputPath, "input", "", "path to the inspected proxy source")
 	flags.StringVar(&options.SourceKind, "source-kind", "", "classified source kind: full, nodes, or links")
 	flags.StringVar(&options.RulesMode, "rules-mode", "auto", "routing policy source: auto or template")
@@ -413,11 +419,23 @@ func runBuildCommand(arguments []string) error {
 	flags.IntVar(&options.ObservedLinks, "observed-links", 0, "link count reported by subscription inspection")
 	flags.IntVar(&options.ObservedSkipped, "observed-skipped", 0, "skipped line count reported by subscription inspection")
 	flags.StringVar(&options.Policy.Controller, "controller", "", "private controller IP and port")
+	flags.StringVar(&options.Policy.ControllerSecret, "controller-secret", "", "optional protected controller secret")
 	flags.StringVar(&options.Policy.DNSListen, "dns-listen", "", "loopback DNS IP and port")
 	flags.StringVar(&options.Policy.DNSMode, "dns-mode", "preserve", "protected DNS mode")
+	flags.StringVar(&options.Policy.FakeIPRange, "fake-ip-range", "198.18.0.1/16", "protected fake-IP IPv4 range")
+	flags.StringVar(&options.Policy.FakeIPFilterMode, "fake-ip-filter-mode", "blacklist", "protected fake-IP filter mode")
+	flags.Var(&fakeIPFilters, "fake-ip-filter", "repeatable protected fake-IP compatibility filter")
+	flags.BoolVar(&options.Policy.StoreFakeIP, "store-fake-ip", true, "persist fake-IP mappings")
+	flags.IntVar(&options.Policy.TProxyPort, "tproxy-port", defaultTProxyPort, "protected TPROXY listener port")
+	flags.IntVar(&options.Policy.RoutingMark, "routing-mark", defaultRoutingMark, "protected Mihomo routing mark")
+	flags.StringVar(&options.Policy.ProxyMode, "proxy-mode", "tproxy", "protected proxy mode")
+	flags.StringVar(&options.Policy.TunStack, "tun-stack", "system", "protected TUN stack")
+	flags.BoolVar(&options.Policy.IPv6, "ipv6", false, "enable protected IPv6 behavior")
+	flags.StringVar(&options.Policy.PanelHostname, "panel-hostname", "", "local dashboard DNS hostname")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
+	options.Policy.FakeIPFilter = []string(fakeIPFilters)
 	if options.InputPath == "" || options.CurrentPath == "" || options.OutputPath == "" {
 		return errors.New("-input, -current, and -output are required")
 	}

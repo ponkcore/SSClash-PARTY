@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${0##*/}" in
+ip)
+    printf '%s\n' "${FAKE_IP_ROUTES:-}"
+    ;;
+profile-sync)
+    printf '%s\n' "${1:-}" >> "${FAKE_SYNC_CALLS:?}"
+    if [[ "${FAKE_SYNC_EXIT:-0}" != 0 ]]; then
+        printf '%s\n' '{"state":"error","code":"sync_failed","message":"Synthetic profile failure."}'
+        exit "$FAKE_SYNC_EXIT"
+    fi
+    printf '%s\n' '{"state":"success","code":"updated","message":"Synthetic profile success."}'
+    ;;
+panel-helper)
+    printf '%s\n' "${1:-}" >> "${FAKE_PANEL_CALLS:?}"
+    if [[ "${FAKE_PANEL_EXIT:-0}" != 0 ]]; then
+        printf '%s\n' '{"ok":false,"code":"synthetic_panel_failure"}'
+        exit "$FAKE_PANEL_EXIT"
+    fi
+    printf '%s\n' '{"ok":true}'
+    ;;
+dnsmasq-init|uhttpd-init)
+    printf '%s %s\n' "${0##*/}" "${1:-}" >> "${FAKE_SERVICE_CALLS:?}"
+    ;;
+ubus)
+    printf '%s\n' '{"l3_device":"br-lan","ipv4-address":[{"address":"192.168.10.1"}]}'
+    ;;
+jsonfilter)
+    input="$(< /dev/stdin)"
+    expression=
+    while (($#)); do
+        case "$1" in
+        -e) expression="$2"; shift 2 ;;
+        *) shift ;;
+        esac
+    done
+    case "$expression" in
+    '@.l3_device') jq -r '.l3_device // empty' <<< "$input" ;;
+    '@["ipv4-address"][0].address') jq -r '."ipv4-address"[0].address // empty' <<< "$input" ;;
+    *) exit 2 ;;
+    esac
+    ;;
+*)
+    printf 'Unknown fake command: %s\n' "${0##*/}" >&2
+    exit 2
+    ;;
+esac

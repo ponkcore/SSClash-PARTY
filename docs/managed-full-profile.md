@@ -36,16 +36,16 @@ The subscription cannot replace the router-critical settings below:
 | Area | Local behavior |
 |---|---|
 | Routing mode | Forced to `rule` |
-| Transparent listener | Forced to `tproxy-port: 7894` |
-| Routing loop prevention | Forced to `routing-mark: 2` |
+| Transparent transport | Locally selected TPROXY, TUN, or mixed mode; TPROXY defaults to port `7894` |
+| Routing loop prevention | Locally selected safe mark; defaults to `routing-mark: 2`, while marks 1 and 3 remain reserved |
 | Controller | Private, loopback, or link-local address only |
 | Controller secret | Safe local token preserved; missing or unsafe token replaced with `crypto/rand` |
-| Dashboard files | Forced to the packaged `./ui` directory |
+| Dashboard files and CORS | Forced to packaged `./ui` files and exact local panel/controller origins |
 | DNS listener | Loopback address only |
-| DNS interception mode | Protected by the local `dns_mode` setting |
-| Fake-IP cache persistence | Preserved from the local profile settings |
-| IPv6 | Disabled |
-| TUN and client listeners | Removed |
+| DNS interception mode | Deliberately selected redir-host or fake-IP under Router Integration |
+| Fake-IP baseline | Local range, filter behavior, compatibility exclusions, and persistence |
+| IPv6 | Disabled until transparent routing has complete leak protection |
+| Remote TUN and client listeners | Removed; only the locally selected TUN definition may be generated |
 | Process matching | Forced off |
 | Provider cache paths | Confined below `./managed-providers/` |
 
@@ -64,14 +64,17 @@ Open **Services → SSClash → Configuration** and use the
 **Configuration Source** card:
 
 1. Select **Subscription** and paste the HTTPS URL.
-2. Choose **Automatic** to retain a complete remote policy, or force the
+2. Select an existing saved profile or use **Add profile**.
+3. Choose **Automatic** to retain a complete remote policy, or force the
    selected PARTY template to import only proxies.
-3. Choose an update interval. The minimum is 300 seconds; 3,600 seconds is
+4. Choose an update interval. The minimum is 300 seconds; 3,600 seconds is
    one hour.
-4. Enable automatic updates if desired.
-5. Select **Sync now** to download and validate without starting a stopped
+5. Enable automatic updates if desired.
+6. Select **Validate without switching** to test an inactive profile without
+   changing the runtime, or **Switch to this profile** to make it active.
+7. Select **Sync now** to download and apply the active profile without starting a stopped
    service.
-6. Select **Sync & guarded start** for the first activation.
+8. Select **Sync & guarded start** for the first activation.
 
 The ordinary **Start Service** button also uses the guarded managed start when
 a managed source is saved.
@@ -79,6 +82,11 @@ a managed source is saved.
 The YAML editor is a read-only active-profile preview in managed modes. Select
 **Manual YAML** before editing it. Merely changing source settings never
 replaces the active file.
+
+Each named profile retains its own URL, policy mode, template, interval,
+User-Agent, and optional HWID. Only the active profile is scheduled. PARTY can
+save and switch profiles, but it does not yet aggregate several subscriptions
+into one proxy pool.
 
 ## Update transaction
 
@@ -103,7 +111,8 @@ Each manual or scheduled synchronization performs the following transaction:
     If protected listener, controller, TProxy, or DNS interception settings
     changed, perform a guarded restart instead.
 14. Check the controller, router DNS, and a configured proxy group.
-15. Restore and reload the previous profile if any check fails.
+15. Commit the new active-profile pointer only after successful activation.
+16. Restore and reload the previous profile if any check fails.
 
 At most five dated configuration backups are retained under:
 
@@ -129,23 +138,30 @@ pass:
 If confirmation does not arrive before the watchdog deadline, SSClash is
 stopped and disabled so that direct routing can recover.
 
-## DNS modes
+## Router Integration and DNS modes
 
-The local `dns_mode` option accepts:
+Open **Services → SSClash → Router Integration** for the protected runtime
+overlay. Its DNS selector exposes:
 
-- `preserve` — retain the tested mode from the current router config;
 - `redir-host` — explicitly force normal address responses;
-- `fake-ip` — preserve an already tested fake-IP baseline.
+- `fake-ip` — generate a locally controlled fake-IP baseline.
 
-`fake-ip` cannot be enabled only by a remote subscription. Before selecting
-it, the current local configuration must already contain a tested
-`enhanced-mode: fake-ip` baseline, including a suitable private range and
-compatibility filters.
+When fake-IP is selected, PARTY checks the configured IPv4 CIDR against
+current routes, validates filter mode and persistence, and requires `*.lan`
+and `*.local` to bypass fake addressing. The friendly panel hostname is also
+required while panel publication is enabled. The UI can add missing mandatory
+exclusions before the actual activation. Mihomo
+validation, guarded restart, health checks, and rollback still apply.
 
 This restriction prevents an unattended subscription update from changing
-the DNS model for every LAN client. It does not prohibit fake-IP. A deliberate
-local migration can establish and test the baseline, after which managed
-updates preserve it.
+the DNS model for every LAN client. It does not prohibit fake-IP; it moves the
+choice into an explicit router-owned workflow. The same page contains an
+advanced, warning-marked section for transparent transport, ports, routing
+mark, TUN stack, controller address, token rotation, and panel hostname.
+
+Manual YAML remains authoritative and does not inherit this overlay. The
+legacy internal `preserve` value can retain an already tested baseline during
+migration, but it is not offered as a new UI selection.
 
 ## Dashboard access and `GLOBAL`
 
@@ -153,6 +169,15 @@ updates preserve it.
 active configuration and opens the packaged dashboard setup route. Connection
 parameters are placed after the URL fragment marker (`#`), so the browser does
 not send the secret in the HTTP request path.
+
+With Friendly panel address enabled, `http://panel.router` resolves to the
+router's current LAN address through dnsmasq. An unauthenticated request opens
+the standard LuCI login; after successful authentication, LuCI continues to
+the protected dashboard route and then Zashboard. Direct
+`http://ROUTER_IP:9090/` remains a token-protected API endpoint and correctly
+returns HTTP 401 without authorization. The friendly address is ordinary LAN
+HTTP unless the operator configures HTTPS separately, so browser **Not
+secure** labeling is expected.
 
 The controller must remain authenticated. Removing the secret would allow LAN
 clients to inspect connections, change selectors, or invoke other controller
@@ -174,25 +199,29 @@ The settings are stored in:
 
 The package installs this file with mode `0600`.
 
-| Option | Default | Purpose |
+| Section / option | Default | Purpose |
 |---|---|---|
-| `source_mode` | `subscription` | `subscription`, `links`, or `manual` |
-| `rules_mode` | `auto` | Preserve complete remote policy or force a template |
-| `template_id` | `russia` | Trusted PARTY template catalog ID |
-| `enabled` | `0` | Run the scheduled updater |
-| `url` | empty | Adaptive HTTPS subscription URL |
-| `interval` | `3600` | Update interval in seconds |
-| `user_agent` | `auto` | Installed Mihomo user agent or explicit override |
-| `hwid` | empty | Stable Remnawave `x-hwid`, generated only when required |
-| `device_os` | `OpenWrt` | Optional Remnawave device OS header |
-| `device_model` | automatic | Optional Remnawave device model header |
-| `lan_interface` | `lan` | Logical interface used to derive the controller |
-| `controller` | automatic | Explicit private controller address and port |
-| `controller_port` | `9090` | Port used during automatic derivation |
-| `dns_listen` | `127.0.0.1:7874` | Protected loopback Mihomo DNS listener |
-| `dns_mode` | `preserve` | Protected DNS interception mode |
-| `health_url_primary` | Google 204 endpoint | Primary HTTPS proxy probe |
-| `health_url_secondary` | Cloudflare 204 endpoint | Fallback HTTPS proxy probe |
+| `main.source_mode` | `subscription` | `subscription`, `links`, or `manual` |
+| `main.active_profile` | `default` | Named subscription selected for runtime and scheduling |
+| `subscription.name` | section ID | User-facing saved-profile name |
+| `subscription.rules_mode` | `auto` | Preserve complete remote policy or force a template |
+| `subscription.template_id` | `russia` | Trusted PARTY template catalog ID |
+| `subscription.enabled` | `0` | Schedule updates when this profile is active |
+| `subscription.url` | empty | Adaptive HTTPS subscription URL |
+| `subscription.interval` | `3600` | Update interval in seconds |
+| `subscription.user_agent` | `auto` | Installed Mihomo user agent or explicit override |
+| `subscription.hwid` | empty | Stable Remnawave `x-hwid`, generated only when required |
+| `router.dns_listen` | `127.0.0.1:7874` | Protected loopback Mihomo DNS listener |
+| `router.dns_mode` | `redir-host` | Protected DNS interception mode |
+| `router.proxy_mode` | `tproxy` | `tproxy`, `tun`, or `mixed` |
+| `router.tproxy_port` | `7894` | Protected transparent listener port |
+| `router.routing_mark` | `2` | Mihomo loop-prevention mark |
+| `router.controller_mode` | `auto` | Follow the current LAN address or use a private override |
+| `router.controller_port` | `9090` | Protected controller port |
+| `router.panel_hostname` | `panel.router` | Friendly LAN dashboard hostname |
+| `main.lan_interface` | `lan` | Logical interface used for controller and panel derivation |
+| `main.health_url_primary` | Google 204 endpoint | Primary HTTPS proxy probe |
+| `main.health_url_secondary` | Cloudflare 204 endpoint | Fallback HTTPS proxy probe |
 
 Header values are length-limited and cannot contain carriage returns or line
 feeds. The subscription URL is passed to curl through standard input rather
@@ -214,7 +243,8 @@ subscription URL, controller secret, proxy credentials, or raw YAML.
 To stop scheduled updates without stopping a working proxy:
 
 ```sh
-uci set ssclash_profile.main.enabled='0'
+profile="$(uci -q get ssclash_profile.main.active_profile)"
+uci set "ssclash_profile.$profile.enabled=0"
 uci commit ssclash_profile
 /etc/init.d/ssclash-profile-sync stop
 /etc/init.d/ssclash-profile-sync disable

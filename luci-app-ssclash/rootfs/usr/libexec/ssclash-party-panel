@@ -1,0 +1,179 @@
+#!/bin/sh
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+STATE_DIR=${SSCLASH_PANEL_STATE_DIR:-/etc/ssclash-party}
+STATE_FILE=$STATE_DIR/panel.state
+HOST_CONFIG=${SSCLASH_PANEL_HOST_CONFIG:-/www/ssclash-party-host.js}
+DNSMASQ_INIT=${SSCLASH_DNSMASQ_INIT:-/etc/init.d/dnsmasq}
+UHTTPD_INIT=${SSCLASH_UHTTPD_INIT:-/etc/init.d/uhttpd}
+RESTART_DELAY=${SSCLASH_PANEL_RESTART_DELAY:-1}
+INDEX_NAME=ssclash-party-index.html
+UI_ALIAS=/party-dashboard=/opt/clash/ui
+
+router_value() {
+	local option="$1"
+	local fallback="${2:-}"
+	local result
+	result="$(uci -q get "ssclash_profile.router.$option" 2>/dev/null)"
+	[ -n "$result" ] && printf '%s\n' "$result" || printf '%s\n' "$fallback"
+}
+
+resolve_lan_device() {
+	local interface device
+	interface="$(uci -q get ssclash_profile.main.lan_interface)"
+	[ -n "$interface" ] || interface=lan
+	device="$(ubus -S call "network.interface.$interface" status 2>/dev/null |
+		jsonfilter -e '@.l3_device' 2>/dev/null)"
+	[ -n "$device" ] || device="$(uci -q get "network.$interface.device")"
+	[ -n "$device" ] || device="br-$interface"
+	case "$device" in
+		''|*[!A-Za-z0-9_.:-]*) return 1 ;;
+	esac
+	printf '%s\n' "$device"
+}
+
+state_value() {
+	local key="$1"
+	[ -r "$STATE_FILE" ] || return 0
+	sed -n "s/^$key=//p" "$STATE_FILE" | sed -n '1p'
+}
+
+remove_dns_record() {
+	local hostname="$1"
+	local device="$2"
+	[ -n "$hostname" ] && [ -n "$device" ] || return 0
+	uci -q del_list "dhcp.@dnsmasq[0].interface_name=$hostname,$device" 2>/dev/null || true
+}
+
+remove_word() {
+	local words="$1"
+	local unwanted="$2"
+	local word result=
+	for word in $words; do
+		[ "$word" = "$unwanted" ] && continue
+		result="${result:+$result }$word"
+	done
+	printf '%s\n' "$result"
+}
+
+configure_index() {
+	local enabled="$1"
+	local indexes index
+	indexes="$(uci -q get uhttpd.main.index_page)"
+	indexes="$(remove_word "$indexes" "$INDEX_NAME")"
+	if [ "$enabled" = 1 ]; then
+		indexes="$INDEX_NAME${indexes:+ $indexes}"
+	fi
+	uci -q delete uhttpd.main.index_page 2>/dev/null || true
+	for index in $indexes; do
+		uci -q add_list "uhttpd.main.index_page=$index" || return 1
+	done
+}
+
+configure_alias() {
+	local enabled="$1"
+	uci -q del_list "uhttpd.main.alias=$UI_ALIAS" 2>/dev/null || true
+	if [ "$enabled" = 1 ]; then
+		uci -q add_list "uhttpd.main.alias=$UI_ALIAS" || return 1
+	fi
+	return 0
+}
+
+write_state() {
+	local enabled="$1"
+	local hostname="$2"
+	local device="$3"
+	mkdir -p "$STATE_DIR" || return 1
+	chmod 700 "$STATE_DIR" 2>/dev/null || true
+	umask 077
+	{
+		printf 'enabled=%s\n' "$enabled"
+		printf 'hostname=%s\n' "$hostname"
+		printf 'device=%s\n' "$device"
+	} > "$STATE_FILE.tmp" || return 1
+	mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+
+restart_services() {
+	"$DNSMASQ_INIT" restart >/dev/null 2>&1 || return 1
+	(
+		sleep "$RESTART_DELAY"
+		"$UHTTPD_INIT" restart >/dev/null 2>&1
+	) >/dev/null 2>&1 &
+}
+
+apply_panel() {
+	local enabled hostname device old_hostname old_device
+	enabled="$(router_value panel_enabled 1)"
+	hostname="$(router_value panel_hostname panel.router)"
+	case "$hostname" in
+		''|.*|*.|*..*|*[!A-Za-z0-9.-]*)
+			printf '%s\n' '{"ok":false,"code":"invalid_hostname"}'
+			return 1
+			;;
+	esac
+	device="$(resolve_lan_device)" || {
+		printf '%s\n' '{"ok":false,"code":"lan_device_unavailable"}'
+		return 1
+	}
+	old_hostname="$(state_value hostname)"
+	old_device="$(state_value device)"
+
+	remove_dns_record "$old_hostname" "$old_device"
+	remove_dns_record "$hostname" "$device"
+	case "$enabled" in
+		1)
+			uci -q add_list "dhcp.@dnsmasq[0].interface_name=$hostname,$device" || return 1
+			configure_index 1 || return 1
+			configure_alias 1 || return 1
+			;;
+		*)
+			enabled=0
+			configure_index 0 || return 1
+			configure_alias 0 || return 1
+			;;
+	esac
+	uci -q commit dhcp || return 1
+	uci -q commit uhttpd || return 1
+	printf 'window.SSCLASH_PARTY_PANEL_HOST = "%s";\n' "$hostname" > "$HOST_CONFIG.tmp" || return 1
+	chmod 644 "$HOST_CONFIG.tmp" || return 1
+	mv "$HOST_CONFIG.tmp" "$HOST_CONFIG" || return 1
+	write_state "$enabled" "$hostname" "$device" || return 1
+	restart_services || return 1
+	printf '{"ok":true,"enabled":%s,"hostname":"%s"}\n' "$enabled" "$hostname"
+}
+
+remove_panel() {
+	local hostname device
+	hostname="$(state_value hostname)"
+	device="$(state_value device)"
+	remove_dns_record "$hostname" "$device"
+	configure_index 0
+	configure_alias 0
+	uci -q commit dhcp 2>/dev/null || true
+	uci -q commit uhttpd 2>/dev/null || true
+	rm -f "$STATE_FILE"
+	printf '%s\n' 'window.SSCLASH_PARTY_PANEL_HOST = "panel.router";' > "$HOST_CONFIG" 2>/dev/null || true
+	restart_services || true
+}
+
+panel_status() {
+	local enabled hostname
+	enabled="$(state_value enabled)"
+	hostname="$(state_value hostname)"
+	[ "$enabled" = 1 ] || enabled=0
+	printf '{"ok":true,"enabled":%s,"hostname":"%s"}\n' "$enabled" "$hostname"
+}
+
+case "${1:-status}" in
+	apply) apply_panel ;;
+	remove) remove_panel ;;
+	status) panel_status ;;
+	*)
+		echo "Usage: $0 {apply|remove|status}" >&2
+		exit 2
+		;;
+esac

@@ -5,7 +5,7 @@ configuration. Select the source under **Services → SSClash → Configuration*
 
 | Source | Proxy ownership | Routing-policy ownership | Scheduled updates |
 |---|---|---|---|
-| Subscription | Remote subscription | Complete remote policy when available, otherwise a PARTY template | Yes |
+| Subscription | One selected named remote profile | Complete remote policy when available, otherwise a PARTY template | Yes, for the active profile |
 | Proxy links | Local URI list | PARTY template | Not needed; the source is local |
 | Manual YAML | User-edited YAML | User-edited YAML | No |
 
@@ -16,10 +16,12 @@ the editor authoritative again.
 
 ## Subscription mode
 
-Subscription mode accepts one HTTPS URL. It supports complete Mihomo YAML,
-nodes-only Mihomo YAML, plaintext proxy URI lists, and outer Base64-encoded URI
-lists. This covers Remnawave and other panels that choose a response format
-from the requesting client's `User-Agent`.
+Each saved Subscription profile accepts one HTTPS URL. PARTY can retain
+multiple named profiles, but exactly one is selected as the runtime and
+scheduled-update source. A profile supports complete Mihomo YAML, nodes-only
+Mihomo YAML, plaintext proxy URI lists, and outer Base64-encoded URI lists.
+This covers Remnawave and other panels that choose a response format from the
+requesting client's `User-Agent`.
 
 PARTY discovers the source without assuming that every provider has a complete
 Mihomo policy:
@@ -77,6 +79,27 @@ Subscription mode has two routing-policy choices:
 This selector makes provider-managed routing optional. A provider can add or
 change groups and rules automatically only while a complete profile is active
 in Automatic mode.
+
+### Saved profiles and switching
+
+Each named profile stores its own URL, display name, routing-policy choice,
+fallback template, interval, User-Agent, HWID, and automatic-update switch.
+The Configuration page exposes four distinct operations:
+
+- **Save settings** changes stored metadata only;
+- **Validate without switching** downloads, generates, tests, and caches an
+  inactive profile without changing the active YAML;
+- **Switch to this profile** validates the selected profile, atomically
+  installs it, and changes the active-profile pointer only after successful
+  runtime activation;
+- **Delete profile** is available only for an inactive profile and never
+  removes the last remaining profile.
+
+If Mihomo is running, profile switching uses authenticated hot reload when the
+router integration signature is unchanged and guarded restart otherwise. If
+Mihomo is stopped, the validated profile becomes the next-start configuration
+without starting the service. The scheduler follows only the active profile.
+PARTY does not currently combine proxies from several subscriptions.
 
 ## Proxy-links mode
 
@@ -138,8 +161,34 @@ the catalog in later releases without changing the source-mode contract.
 
 Template files do not own router integration. The protected overlay still
 forces the private controller, controller authentication, loopback DNS
-listener, tested DNS mode, TProxy port, routing mark, disabled TUN/IPv6, and
-confined provider caches.
+listener, locally selected DNS mode, TPROXY/TUN mode, port, routing mark,
+disabled IPv6, and confined provider caches.
+
+## Router Integration
+
+Open **Services → SSClash → Router Integration** to edit settings that must be
+stable across every managed subscription and template:
+
+- redir-host or fake-IP DNS mode and loopback listener;
+- fake-IP range, blacklist/whitelist behavior, compatibility filters, and
+  mapping persistence;
+- TPROXY, TUN, or mixed transport, TPROXY port, routing mark, and TUN stack;
+- automatic LAN-derived or explicit private controller address, port, and
+  secret rotation;
+- the friendly local panel hostname.
+
+Values are staged in a temporary UCI section. The helper checks port and mark
+collisions, private listener scope, TUN availability, fake-IP CIDR validity,
+overlap with current IPv4 routes, mandatory `*.lan` and `*.local` exclusions,
+and the panel hostname while friendly publication is enabled. The UI can add
+those safe exclusions and enable mapping
+persistence. Only then does PARTY generate and validate a candidate.
+
+Subscriptions cannot change these values. Manual YAML is intentionally
+authoritative and therefore does not use Router Integration; edit and restart
+the complete YAML directly in that mode. IPv6 transparent routing remains
+unavailable until both supported firewall backends can enforce complete leak
+protection.
 
 ## Transaction and rollback
 
@@ -157,10 +206,11 @@ Every managed apply uses the same transaction:
 9. Verify the authenticated controller, router DNS, and a proxy-path probe.
 10. Restore the previous profile on reload or health-check failure.
 
-PARTY also fingerprints the selected mode, routing choice, template, and
-source before generation. If another browser session or an operator changes
-those settings while a download or Mihomo test is in progress, the stale
-candidate is discarded instead of replacing the newly selected source.
+PARTY also fingerprints the selected mode, profile ID, routing choice,
+template, router integration overlay, and source before generation. If another
+browser session or an operator changes those settings while a download or
+Mihomo test is in progress, the stale candidate is discarded instead of
+replacing the newly selected source.
 
 The scheduler runs only in Subscription mode. It never starts a deliberately
 stopped Clash service. A local proxy-link list changes only when the user saves
@@ -170,11 +220,12 @@ it, so it does not need an hourly downloader.
 
 | Path | Contents | Expected mode |
 |---|---|---|
-| `/etc/config/ssclash_profile` | Source mode, URL, policy choice, interval, optional HWID | `0600` |
+| `/etc/config/ssclash_profile` | Source mode, named subscription profiles, active-profile pointer, router integration, intervals, and optional HWIDs | `0600` |
 | `/etc/ssclash-party/links.txt` | Local proxy URI list | `0600` |
 | `/opt/clash/managed-sources/` | Content-addressed URI source used by Mihomo | directory `0700`, files `0600` |
 | `/opt/clash/config.yaml` | Active last-known-good Mihomo profile | `0600` |
 | `/opt/clash/profile-backups/` | Up to five previous active profiles | directory `0700`, files `0600` |
+| `/opt/clash/profile-cache/` | Validated per-profile candidates and source revisions | directory `0700`, files `0600` |
 | `/tmp/ssclash-profile-sync/status.json` | Non-secret operation state and structural counts | runtime-only |
 
 The subscription URL, proxy URIs, raw YAML, controller secret, and proxy
@@ -182,7 +233,8 @@ credentials are never included in the status document or normal log messages.
 
 ## Initial limitations
 
-- One subscription URL is supported per configuration.
+- Only one saved subscription profile can be active and scheduled at a time;
+  multi-subscription aggregation is not implemented.
 - Russia is the only packaged routing template.
 - Proxy links are local static input; only subscriptions are scheduled.
 - The 5 MiB source limit is fixed.

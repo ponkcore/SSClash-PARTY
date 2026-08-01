@@ -5,5 +5,8 @@
 +opt/clash/profile-backups/*
 +opt/clash/managed-sources
 +opt/clash/managed-sources/*
++opt/clash/profile-cache
++opt/clash/profile-cache/*
 +etc/config/ssclash_profile
 +etc/ssclash-party/links.txt
++etc/ssclash-party/panel.state

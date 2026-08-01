@@ -1,0 +1,262 @@
+#!/bin/sh
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+PROFILE_CONFIG=${SSCLASH_PROFILE_CONFIG:-/etc/config/ssclash_profile}
+ACTIVE_CONFIG=${SSCLASH_ACTIVE_CONFIG:-/opt/clash/config.yaml}
+SETTINGS_FILE=${SSCLASH_SETTINGS_FILE:-/opt/clash/settings}
+
+get_value() {
+	uci -q get "$1" 2>/dev/null || true
+}
+
+quote_uci_value() {
+	printf '%s' "$1" | sed "s/'/'\\\\''/g"
+}
+
+set_value() {
+	local key="$1"
+	local value="$2"
+	local escaped
+	escaped="$(quote_uci_value "$value")"
+	printf "set %s='%s'\n" "$key" "$escaped" | uci -q batch
+}
+
+add_list_value() {
+	local key="$1"
+	local value="$2"
+	local escaped
+	escaped="$(quote_uci_value "$value")"
+	printf "add_list %s='%s'\n" "$key" "$escaped" | uci -q batch
+}
+
+set_default() {
+	local key="$1"
+	local value="$2"
+	[ -n "$(get_value "$key")" ] || set_value "$key" "$value"
+}
+
+copy_if_present() {
+	local source="$1"
+	local destination="$2"
+	local fallback="${3:-}"
+	local value
+	value="$(get_value "$source")"
+	[ -n "$value" ] || value="$fallback"
+	set_value "$destination" "$value"
+}
+
+yaml_top_scalar() {
+	local key="$1"
+	[ -s "$ACTIVE_CONFIG" ] || return 0
+	awk -v wanted="$key" '
+		$0 ~ ("^" wanted ":[[:space:]]*") {
+			line = $0
+			sub("^[^:]+:[[:space:]]*", "", line)
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", line)
+			print line
+			exit
+		}
+	' "$ACTIVE_CONFIG"
+}
+
+yaml_section_scalar() {
+	local section="$1"
+	local key="$2"
+	[ -s "$ACTIVE_CONFIG" ] || return 0
+	awk -v section="$section" -v wanted="$key" '
+		$0 ~ ("^" section ":[[:space:]]*$") { inside = 1; next }
+		inside && /^[^[:space:]]/ { exit }
+		inside && $0 ~ ("^  " wanted ":[[:space:]]*") {
+			line = $0
+			sub("^[[:space:]]*[^:]+:[[:space:]]*", "", line)
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", line)
+			print line
+			exit
+		}
+	' "$ACTIVE_CONFIG"
+}
+
+yaml_dns_filters() {
+	[ -s "$ACTIVE_CONFIG" ] || return 0
+	awk '
+		/^dns:[[:space:]]*$/ { in_dns = 1; next }
+		in_dns && /^[^[:space:]]/ { exit }
+		in_dns && /^  fake-ip-filter:[[:space:]]*$/ { in_list = 1; next }
+		in_list && /^    -[[:space:]]*/ {
+			line = $0
+			sub(/^    -[[:space:]]*/, "", line)
+			sub(/[[:space:]]*#.*/, "", line)
+			gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", line)
+			if (line != "") print line
+			next
+		}
+		in_list { exit }
+	' "$ACTIVE_CONFIG"
+}
+
+settings_value() {
+	local key="$1"
+	[ -r "$SETTINGS_FILE" ] || return 0
+	sed -n "s/^$key=//p" "$SETTINGS_FILE" | sed -n '1p'
+}
+
+list_contains() {
+	local key="$1"
+	local wanted="$2"
+	local value
+	value="$(get_value "$key")"
+	case " $value " in
+		*" $wanted "*) return 0 ;;
+	esac
+	return 1
+}
+
+ensure_main() {
+	local type mode
+	type="$(get_value ssclash_profile.main)"
+	[ "$type" = globals ] || uci -q set ssclash_profile.main=globals
+	mode="$(get_value ssclash_profile.main.source_mode)"
+	case "$mode" in
+		subscription|links|manual) ;;
+		*)
+			if [ -n "$(get_value ssclash_profile.main.url)" ]; then
+				set_value ssclash_profile.main.source_mode subscription
+			else
+				set_value ssclash_profile.main.source_mode manual
+			fi
+			;;
+	esac
+	set_default ssclash_profile.main.rules_mode template
+	set_default ssclash_profile.main.template_id russia
+	set_default ssclash_profile.main.lan_interface lan
+	set_default ssclash_profile.main.health_url_primary https://www.gstatic.com/generate_204
+	set_default ssclash_profile.main.health_url_secondary https://cp.cloudflare.com/generate_204
+}
+
+ensure_default_subscription() {
+	local count user_agent
+	count="$(uci -q show ssclash_profile 2>/dev/null |
+		awk -F= '$1 ~ /^ssclash_profile\.[A-Za-z0-9_]+$/ && $2 == "subscription" { count++ } END { print count + 0 }')"
+	if [ "$count" -eq 0 ]; then
+		uci -q set ssclash_profile.default=subscription
+		set_value ssclash_profile.default.name Default
+		copy_if_present ssclash_profile.main.enabled ssclash_profile.default.enabled 0
+		copy_if_present ssclash_profile.main.url ssclash_profile.default.url ''
+		copy_if_present ssclash_profile.main.rules_mode ssclash_profile.default.rules_mode auto
+		copy_if_present ssclash_profile.main.template_id ssclash_profile.default.template_id russia
+		copy_if_present ssclash_profile.main.interval ssclash_profile.default.interval 3600
+		user_agent="$(get_value ssclash_profile.main.user_agent)"
+		case "$user_agent" in
+			''|mihomo/[0-9]*) user_agent=auto ;;
+		esac
+		set_value ssclash_profile.default.user_agent "$user_agent"
+		copy_if_present ssclash_profile.main.hwid ssclash_profile.default.hwid ''
+		copy_if_present ssclash_profile.main.device_os ssclash_profile.default.device_os OpenWrt
+		copy_if_present ssclash_profile.main.device_model ssclash_profile.default.device_model ''
+	fi
+	set_default ssclash_profile.main.active_profile default
+	if [ "$(get_value "ssclash_profile.$(get_value ssclash_profile.main.active_profile)")" != subscription ]; then
+		set_value ssclash_profile.main.active_profile "$(uci -q show ssclash_profile 2>/dev/null |
+			awk -F'[.=]' '$2 ~ /^[A-Za-z0-9_]+$/ && $3 == "subscription" { print $2; exit }')"
+	fi
+}
+
+ensure_router() {
+	local created=0 dns_mode dns_listen detected proxy_mode tun_stack controller controller_host controller_port lan_address
+	if [ "$(get_value ssclash_profile.router)" != router ]; then
+		uci -q set ssclash_profile.router=router
+		created=1
+	fi
+
+	dns_mode="$(get_value ssclash_profile.main.dns_mode)"
+	case "$dns_mode" in
+		redir-host|fake-ip) ;;
+		*)
+			detected="$(yaml_section_scalar dns enhanced-mode)"
+			[ "$detected" = fake-ip ] && dns_mode=fake-ip || dns_mode=redir-host
+			;;
+	esac
+	set_default ssclash_profile.router.dns_mode "$dns_mode"
+	dns_listen="$(get_value ssclash_profile.main.dns_listen)"
+	[ -n "$dns_listen" ] || dns_listen=127.0.0.1:7874
+	set_default ssclash_profile.router.dns_listen "$dns_listen"
+	set_default ssclash_profile.router.fake_ip_range "$(yaml_section_scalar dns fake-ip-range)"
+	[ -n "$(get_value ssclash_profile.router.fake_ip_range)" ] || \
+		set_value ssclash_profile.router.fake_ip_range 198.18.0.1/16
+	set_default ssclash_profile.router.fake_ip_filter_mode "$(yaml_section_scalar dns fake-ip-filter-mode)"
+	[ -n "$(get_value ssclash_profile.router.fake_ip_filter_mode)" ] || \
+		set_value ssclash_profile.router.fake_ip_filter_mode blacklist
+	set_default ssclash_profile.router.store_fake_ip "$(yaml_section_scalar profile store-fake-ip)"
+	case "$(get_value ssclash_profile.router.store_fake_ip)" in
+		''|true|1) set_value ssclash_profile.router.store_fake_ip 1 ;;
+		*) set_value ssclash_profile.router.store_fake_ip 0 ;;
+	esac
+
+	set_default ssclash_profile.router.panel_enabled 1
+	set_default ssclash_profile.router.panel_hostname panel.router
+	if [ "$created" -eq 1 ]; then
+		while IFS= read -r detected; do
+			[ -n "$detected" ] && add_list_value ssclash_profile.router.fake_ip_filter "$detected"
+		done <<EOF
+$(yaml_dns_filters)
+EOF
+	fi
+	for detected in '*.lan' '*.local' "$(get_value ssclash_profile.router.panel_hostname)"; do
+		list_contains ssclash_profile.router.fake_ip_filter "$detected" || \
+			add_list_value ssclash_profile.router.fake_ip_filter "$detected"
+	done
+
+	proxy_mode="$(settings_value PROXY_MODE)"
+	case "$proxy_mode" in tproxy|tun|mixed) ;; *) proxy_mode=tproxy ;; esac
+	set_default ssclash_profile.router.proxy_mode "$proxy_mode"
+	set_default ssclash_profile.router.tproxy_port "$(yaml_top_scalar tproxy-port)"
+	[ -n "$(get_value ssclash_profile.router.tproxy_port)" ] || \
+		set_value ssclash_profile.router.tproxy_port 7894
+	set_default ssclash_profile.router.routing_mark "$(yaml_top_scalar routing-mark)"
+	[ -n "$(get_value ssclash_profile.router.routing_mark)" ] || \
+		set_value ssclash_profile.router.routing_mark 2
+	tun_stack="$(settings_value TUN_STACK)"
+	case "$tun_stack" in system|gvisor|mixed) ;; *) tun_stack=system ;; esac
+	set_default ssclash_profile.router.tun_stack "$tun_stack"
+	set_default ssclash_profile.router.ipv6_enabled 0
+
+	controller="$(get_value ssclash_profile.main.controller)"
+	controller_host=${controller%:*}
+	controller_port=${controller##*:}
+	[ "$controller_host" != "$controller" ] || controller_host=
+	case "$controller_port" in ''|*[!0-9]*) controller_port="$(get_value ssclash_profile.main.controller_port)" ;; esac
+	case "$controller_port" in ''|*[!0-9]*) controller_port=9090 ;; esac
+	lan_address="$(ubus -S call "network.interface.$(get_value ssclash_profile.main.lan_interface)" status 2>/dev/null |
+		jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)"
+	if [ -n "$controller_host" ] && [ "$controller_host" != "$lan_address" ]; then
+		set_default ssclash_profile.router.controller_mode custom
+		set_default ssclash_profile.router.controller_host "$controller_host"
+	else
+		set_default ssclash_profile.router.controller_mode auto
+		set_default ssclash_profile.router.controller_host ''
+	fi
+	set_default ssclash_profile.router.controller_port "$controller_port"
+	set_default ssclash_profile.router.controller_secret ''
+}
+
+remove_migrated_main_options() {
+	local option
+	for option in \
+		enabled url interval user_agent hwid device_os device_model \
+		controller controller_port dns_listen dns_mode; do
+		uci -q delete "ssclash_profile.main.$option" 2>/dev/null || true
+	done
+}
+
+ensure_main || exit 1
+ensure_default_subscription || exit 1
+ensure_router || exit 1
+remove_migrated_main_options || exit 1
+uci -q commit ssclash_profile || exit 1
+chmod 600 "$PROFILE_CONFIG" 2>/dev/null || true
+exit 0

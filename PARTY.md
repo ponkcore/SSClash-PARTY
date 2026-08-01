@@ -14,6 +14,12 @@ adaptive subscriptions, local proxy links combined with trusted templates,
 and complete manual YAML. See
 [Configuration sources](docs/configuration-sources.md).
 
+The fourth preview adds named subscription profiles, a router-owned LuCI
+integration page for deliberate DNS and transport changes, a guarded fake-IP
+compatibility wizard, and a friendly authenticated `panel.router` entry point.
+It keeps profile storage separate from activation and still activates only one
+subscription at a time.
+
 Unlike a node-only `proxy-provider`, a complete remote profile can update the
 entire policy graph: nodes, groups, rule providers, ordered rules, and their
 relationships. Users who do not want remote policy can force a PARTY template
@@ -133,6 +139,21 @@ checksum-protected preview catalog. That work did not change the OpenWrt
 package payload, so it deliberately did not create a new package tag. The
 catalog selects the existing PARTY.3 assets; future releases publish their own
 channel-specific manifests and installer sidecars.
+
+The router-integration and saved-profile revision is:
+
+```text
+Git tag:         v4.7.0-party.4
+OpenWrt package: luci-app-ssclash 4.7.0-r6
+```
+
+It migrates the original single subscription into a named profile, preserves
+the last-known-good active YAML and service lifecycle, and moves DNS,
+transparent transport, controller, and panel settings into a protected router
+section. Inactive profiles can be validated without activation; switching a
+running profile uses hot reload or guarded restart and updates the active
+profile pointer only after success. This revision does not aggregate multiple
+subscriptions.
 
 A release is published only after:
 

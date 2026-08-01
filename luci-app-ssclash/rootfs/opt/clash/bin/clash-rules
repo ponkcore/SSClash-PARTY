@@ -32,6 +32,7 @@ AUTO_DETECT_LAN="true"
 AUTO_DETECT_WAN="true"
 BLOCK_QUIC="true"
 TUN_STACK="system"
+TPROXY_PORT="7894"
 DETECTED_LAN=""
 DETECTED_WAN=""
 INCLUDED_INTERFACES=""
@@ -89,24 +90,49 @@ warn() {
 load_all_settings_once() {
     if [ ! -f "$SETTINGS_FILE" ]; then
         msg "Settings file not found. Using default values."
-        return
+    else
+        while IFS='=' read -r key value; do
+            case "$key" in
+                "INTERFACE_MODE") MODE="$value" ;;
+                "PROXY_MODE") PROXY_MODE="$value" ;;
+                "AUTO_DETECT_LAN") AUTO_DETECT_LAN="$value" ;;
+                "AUTO_DETECT_WAN") AUTO_DETECT_WAN="$value" ;;
+                "BLOCK_QUIC") BLOCK_QUIC="$value" ;;
+                "TUN_STACK") TUN_STACK="$value" ;;
+                "DETECTED_LAN") DETECTED_LAN="$value" ;;
+                "DETECTED_WAN") DETECTED_WAN="$value" ;;
+                "INCLUDED_INTERFACES") INCLUDED_INTERFACES="$value" ;;
+                "EXCLUDED_INTERFACES") EXCLUDED_INTERFACES="$value" ;;
+                "AUTO_FAKEIP_WHITELIST") AUTO_FAKEIP_WHITELIST="$value" ;;
+            esac
+        done < "$SETTINGS_FILE"
     fi
 
-    while IFS='=' read -r key value; do
-        case "$key" in
-            "INTERFACE_MODE") MODE="$value" ;;
-            "PROXY_MODE") PROXY_MODE="$value" ;;
-            "AUTO_DETECT_LAN") AUTO_DETECT_LAN="$value" ;;
-            "AUTO_DETECT_WAN") AUTO_DETECT_WAN="$value" ;;
-            "BLOCK_QUIC") BLOCK_QUIC="$value" ;;
-            "TUN_STACK") TUN_STACK="$value" ;;
-            "DETECTED_LAN") DETECTED_LAN="$value" ;;
-            "DETECTED_WAN") DETECTED_WAN="$value" ;;
-            "INCLUDED_INTERFACES") INCLUDED_INTERFACES="$value" ;;
-            "EXCLUDED_INTERFACES") EXCLUDED_INTERFACES="$value" ;;
-            "AUTO_FAKEIP_WHITELIST") AUTO_FAKEIP_WHITELIST="$value" ;;
-        esac
-    done < "$SETTINGS_FILE"
+    # Managed PARTY profiles keep transport settings in UCI. This override
+    # prevents the legacy settings page from becoming a competing source of
+    # truth while retaining the settings file for interface policy.
+    local source_mode uci_proxy_mode uci_tun_stack routing_mark
+    source_mode=$(uci -q get ssclash_profile.main.source_mode 2>/dev/null)
+    if [ "$source_mode" = manual ]; then
+        PROXY_MODE=$(get_config_proxy_mode)
+        TUN_STACK=$(get_config_tun_stack)
+    else
+        uci_proxy_mode=$(uci -q get ssclash_profile.router.proxy_mode 2>/dev/null)
+        uci_tun_stack=$(uci -q get ssclash_profile.router.tun_stack 2>/dev/null)
+        case "$uci_proxy_mode" in tproxy|tun|mixed) PROXY_MODE="$uci_proxy_mode" ;; esac
+        case "$uci_tun_stack" in system|gvisor|mixed) TUN_STACK="$uci_tun_stack" ;; esac
+    fi
+    TPROXY_PORT=$(get_config_tproxy_port)
+    routing_mark=$(get_config_routing_mark)
+    case "$routing_mark" in
+        ''|*[!0-9]*|1|3) routing_mark=2 ;;
+        *)
+            if [ "$routing_mark" -lt 1 ] || [ "$routing_mark" -gt 65535 ]; then
+                routing_mark=2
+            fi
+            ;;
+    esac
+    MARK_CLASH_ROUTING=$(printf '0x%04x' "$routing_mark")
 
     local settings_part=""
     [ -n "$MODE" ] && settings_part="$settings_part, Mode: $MODE"
@@ -127,6 +153,72 @@ load_all_settings_once() {
             msg "Settings loaded (no values specified in settings file)."
         fi
     fi
+}
+
+# Manual YAML remains authoritative for transport mode and TUN stack.
+get_config_proxy_mode() {
+    [ -f "$CONFIG_FILE" ] || {
+        echo "tproxy"
+        return
+    }
+    awk '
+        /^tproxy-port:[[:space:]]*/ { tproxy = 1 }
+        /^tun:[[:space:]]*$/ { in_tun = 1; next }
+        in_tun && /^[^[:space:]]/ { in_tun = 0 }
+        in_tun && /^[[:space:]]+enable:[[:space:]]*true([[:space:]]|$)/ { tun = 1 }
+        END {
+            if (tproxy && tun) print "mixed"
+            else if (tun) print "tun"
+            else print "tproxy"
+        }
+    ' "$CONFIG_FILE"
+}
+
+get_config_tun_stack() {
+    [ -f "$CONFIG_FILE" ] || {
+        echo "system"
+        return
+    }
+    awk '
+        /^tun:[[:space:]]*$/ { in_tun = 1; next }
+        in_tun && /^[^[:space:]]/ { exit }
+        in_tun && /^[[:space:]]+stack:[[:space:]]*/ {
+            line = $0
+            sub(/^[[:space:]]+stack:[[:space:]]*/, "", line)
+            sub(/[[:space:]]*#.*/, "", line)
+            gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", line)
+            if (line == "system" || line == "gvisor" || line == "mixed") result = line
+            exit
+        }
+        END { print(result != "" ? result : "system") }
+    ' "$CONFIG_FILE"
+}
+
+# Parse tproxy-port from config.yaml (defaults to 7894 if absent or invalid).
+get_config_tproxy_port() {
+    [ -f "$CONFIG_FILE" ] || {
+        echo "7894"
+        return
+    }
+    local port
+    port=$(awk '
+        /^[[:space:]]*tproxy-port:[[:space:]]*/ {
+            gsub(/^[[:space:]]*tproxy-port:[[:space:]]*/, "")
+            sub(/[[:space:]]*#.*/, "")
+            gsub(/[[:space:]]+$/, "")
+            print $0
+            exit
+        }' "$CONFIG_FILE")
+    case "$port" in
+        ''|*[!0-9]*) echo "7894" ;;
+        *)
+            if [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+                echo "$port"
+            else
+                echo "7894"
+            fi
+            ;;
+    esac
 }
 
 # Parse routing-mark from config.yaml (defaults to 2 if absent).
@@ -167,11 +259,7 @@ preflight_check_tun_stack() {
             ;;
     esac
 
-    local routing_mark
-    routing_mark=$(get_config_routing_mark)
-    if [ "$routing_mark" != "2" ]; then
-        warn "routing-mark in config.yaml is '$routing_mark' (expected 2). Loop prevention rules rely on mark 2."
-    fi
+    msg "Loop-prevention routing mark: $MARK_CLASH_ROUTING"
 }
 
 # Function to check if a string is a valid IP address
@@ -1464,6 +1552,13 @@ apply_nft_clash_exclusions_mangle() {
     # Exclude specific ports used by Clash
     nft add rule inet clash CLASH_MARK tcp dport {7890, 7891, 7892, 7893, 7894} return
     nft add rule inet clash CLASH_MARK udp dport {7890, 7891, 7892, 7893, 7894} return
+    case "$TPROXY_PORT" in
+        7890|7891|7892|7893|7894) ;;
+        *)
+            nft add rule inet clash CLASH_MARK tcp dport "$TPROXY_PORT" return
+            nft add rule inet clash CLASH_MARK udp dport "$TPROXY_PORT" return
+            ;;
+    esac
     msg "Clash ports excluded from proxy in mangle"
 }
 
@@ -1568,7 +1663,7 @@ apply_nft_src_ip_cidr_marking() {
 }
 
 # For nftables - apply TPROXY rules in proxy chain (mode-aware)
-# TPROXY:  TCP+UDP both redirected via TPROXY port 7894
+# TPROXY:  TCP+UDP both redirected via the configured TPROXY port
 # MIXED:   TCP only redirected via TPROXY (mark 0x0001); UDP routed to clash-tun by fwmark 0x0003
 # TUN:     no TPROXY; all traffic routed to clash-tun by kernel via fwmark 0x0001
 apply_nft_tproxy_proxy() {
@@ -1577,12 +1672,12 @@ apply_nft_tproxy_proxy() {
             msg "TPROXY rules skipped (TUN mode - all traffic routes via clash-tun)"
             ;;
         "mixed")
-            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto tcp counter tproxy ip to 127.0.0.1:7894
+            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto tcp counter tproxy ip to "127.0.0.1:$TPROXY_PORT"
             msg "TPROXY rules applied for TCP only (MIXED mode)"
             ;;
         *)
-            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto tcp counter tproxy ip to 127.0.0.1:7894
-            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto udp counter tproxy ip to 127.0.0.1:7894
+            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto tcp counter tproxy ip to "127.0.0.1:$TPROXY_PORT"
+            nft add rule inet clash proxy meta mark "$MARK_TPROXY" meta l4proto udp counter tproxy ip to "127.0.0.1:$TPROXY_PORT"
             msg "TPROXY rules applied for TCP and UDP (TPROXY mode)"
             ;;
     esac
@@ -1702,6 +1797,13 @@ apply_nft_clash_exclusions_output() {
     # Exclude specific ports used by Clash
     nft add rule inet clash output tcp sport {7890, 7891, 7892, 7893, 7894} return
     nft add rule inet clash output udp sport {7890, 7891, 7892, 7893, 7894} return
+    case "$TPROXY_PORT" in
+        7890|7891|7892|7893|7894) ;;
+        *)
+            nft add rule inet clash output tcp sport "$TPROXY_PORT" return
+            nft add rule inet clash output udp sport "$TPROXY_PORT" return
+            ;;
+    esac
     msg "Clash process and ports excluded from proxy in output"
 }
 
@@ -1845,6 +1947,15 @@ apply_iptables_clash_exclusions() {
     iptables -t mangle -A CLASH_PROCESS -p udp --dport 7890:7894 -j RETURN
     iptables -t mangle -A CLASH_PROCESS -p tcp --sport 7890:7894 -j RETURN
     iptables -t mangle -A CLASH_PROCESS -p udp --sport 7890:7894 -j RETURN
+    case "$TPROXY_PORT" in
+        7890|7891|7892|7893|7894) ;;
+        *)
+            iptables -t mangle -A CLASH_PROCESS -p tcp --dport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_PROCESS -p udp --dport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_PROCESS -p tcp --sport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_PROCESS -p udp --sport "$TPROXY_PORT" -j RETURN
+            ;;
+    esac
     msg "Clash ports excluded from proxy"
 }
 
@@ -1865,7 +1976,7 @@ apply_iptables_server_exclusions() {
 }
 
 # For iptables - apply traffic redirection rules (mode-aware)
-# TPROXY:  TCP+UDP both redirected via TPROXY port 7894
+# TPROXY:  TCP+UDP both redirected via the configured TPROXY port
 # MIXED:   TCP → TPROXY mark 0x0001; UDP → mark 0x0003 for routing to clash-tun (table 101)
 # TUN:     TCP+UDP both marked 0x0001 for routing to clash-tun (table 100)
 apply_iptables_tproxy_rules() {
@@ -1889,23 +2000,23 @@ apply_iptables_tproxy_rules() {
             ;;
         "mixed")
             if [ -n "$fake_ip_range" ]; then
-                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p udp -j MARK --set-mark "$MARK_TUN_UDP"
                 msg "MIXED rules applied for fake-ip range: $fake_ip_range (TCP TPROXY, UDP TUN mark 0x0003)"
             else
-                iptables -t mangle -A CLASH_PROCESS -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 iptables -t mangle -A CLASH_PROCESS -p udp -j MARK --set-mark "$MARK_TUN_UDP"
                 msg "MIXED rules applied for all traffic (TCP TPROXY, UDP TUN mark 0x0003)"
             fi
             ;;
         *)
             if [ -n "$fake_ip_range" ]; then
-                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
-                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -d "$fake_ip_range" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 msg "TPROXY rules applied only for fake-ip range: $fake_ip_range"
             else
-                iptables -t mangle -A CLASH_PROCESS -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
-                iptables -t mangle -A CLASH_PROCESS -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -p udp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 msg "TPROXY rules applied for all traffic"
             fi
             ;;
@@ -1919,13 +2030,13 @@ apply_iptables_tproxy_rules() {
                 msg "TUN: fakeip whitelist ipset rules applied"
                 ;;
             "mixed")
-                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p udp -j MARK --set-mark "$MARK_TUN_UDP"
                 msg "MIXED: fakeip whitelist ipset rules applied"
                 ;;
             *)
-                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
-                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -m set --match-set "$FAKEIP_IPSET_NAME" dst -p udp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 msg "TPROXY: fakeip whitelist ipset rules applied"
                 ;;
         esac
@@ -1990,12 +2101,12 @@ apply_iptables_src_ip_cidr_rules() {
                 iptables -t mangle -A CLASH_PROCESS -s "$src" -p udp -j MARK --set-mark "$MARK_TPROXY"
                 ;;
             "mixed")
-                iptables -t mangle -A CLASH_PROCESS -s "$src" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -s "$src" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 iptables -t mangle -A CLASH_PROCESS -s "$src" -p udp -j MARK --set-mark "$MARK_TUN_UDP"
                 ;;
             *)
-                iptables -t mangle -A CLASH_PROCESS -s "$src" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
-                iptables -t mangle -A CLASH_PROCESS -s "$src" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port 7894 --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -s "$src" -p tcp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
+                iptables -t mangle -A CLASH_PROCESS -s "$src" -p udp -j TPROXY --on-ip 127.0.0.1 --on-port "$TPROXY_PORT" --tproxy-mark "$MARK_TPROXY"
                 ;;
         esac
     done
@@ -2056,6 +2167,15 @@ apply_iptables_output_rules() {
     iptables -t mangle -A CLASH_LOCAL -p udp --dport 7890:7894 -j RETURN
     iptables -t mangle -A CLASH_LOCAL -p tcp --sport 7890:7894 -j RETURN
     iptables -t mangle -A CLASH_LOCAL -p udp --sport 7890:7894 -j RETURN
+    case "$TPROXY_PORT" in
+        7890|7891|7892|7893|7894) ;;
+        *)
+            iptables -t mangle -A CLASH_LOCAL -p tcp --dport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_LOCAL -p udp --dport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_LOCAL -p tcp --sport "$TPROXY_PORT" -j RETURN
+            iptables -t mangle -A CLASH_LOCAL -p udp --sport "$TPROXY_PORT" -j RETURN
+            ;;
+    esac
 
     # In MIXED mode router-originated UDP uses TUN mark (0x0003 → table 101 → clash-tun)
     local ipt_output_udp_mark="$MARK_TPROXY"
@@ -2888,10 +3008,10 @@ start() {
             msg "Proxy mode: TUN (all traffic routed via clash-tun, no TPROXY)"
             ;;
         "mixed")
-            msg "Proxy mode: MIXED (TCP via TPROXY port 7894, UDP via clash-tun)"
+            msg "Proxy mode: MIXED (TCP via TPROXY port $TPROXY_PORT, UDP via clash-tun)"
             ;;
         *)
-            msg "Proxy mode: TPROXY (TCP+UDP via TPROXY port 7894)"
+            msg "Proxy mode: TPROXY (TCP+UDP via TPROXY port $TPROXY_PORT)"
             ;;
     esac
 

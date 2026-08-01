@@ -9,9 +9,11 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,8 +52,19 @@ var unsafeTopLevelKeys = []string{
 
 type routerPolicy struct {
 	Controller               string
+	ControllerSecret         string
 	DNSListen                string
 	DNSMode                  string
+	FakeIPRange              string
+	FakeIPFilterMode         string
+	FakeIPFilter             []string
+	StoreFakeIP              bool
+	TProxyPort               int
+	RoutingMark              int
+	ProxyMode                string
+	TunStack                 string
+	IPv6                     bool
+	PanelHostname            string
 	TrustedLocalProviderPath string
 }
 
@@ -62,6 +75,7 @@ type mergeSummary struct {
 	RuleProviders             int      `json:"rule_providers"`
 	Rules                     int      `json:"rules"`
 	DNSMode                   string   `json:"dns_mode"`
+	ProxyMode                 string   `json:"proxy_mode"`
 	SourceSHA256              string   `json:"source_sha256"`
 	OutputSHA256              string   `json:"output_sha256"`
 	GeneratedControllerSecret bool     `json:"generated_controller_secret"`
@@ -73,6 +87,17 @@ type mergeSummary struct {
 	TemplateID                string   `json:"template_id,omitempty"`
 	InputLinks                int      `json:"input_links,omitempty"`
 	SkippedLines              int      `json:"skipped_lines,omitempty"`
+}
+
+type repeatedStringFlag []string
+
+func (values *repeatedStringFlag) String() string {
+	return strings.Join(*values, ",")
+}
+
+func (values *repeatedStringFlag) Set(value string) error {
+	*values = append(*values, value)
+	return nil
 }
 
 func readYAML(path string) (map[string]any, []byte, error) {
@@ -360,7 +385,13 @@ func safeControllerSecret(secret string) bool {
 	return true
 }
 
-func controllerSecret(current map[string]any) (string, bool, error) {
+func controllerSecret(current map[string]any, override string) (string, bool, error) {
+	if strings.TrimSpace(override) != "" {
+		if !safeControllerSecret(override) {
+			return "", false, errors.New("the configured controller secret contains unsupported characters")
+		}
+		return override, false, nil
+	}
 	if secret := nonEmptyString(current["secret"]); safeControllerSecret(secret) {
 		return secret, false, nil
 	}
@@ -371,7 +402,34 @@ func controllerSecret(current map[string]any) (string, bool, error) {
 	return hex.EncodeToString(random), true, nil
 }
 
-func copyProtectedDNSMode(dns, currentDNS map[string]any, mode string) error {
+func validFakeIPFilter(filters []string) error {
+	if len(filters) == 0 || len(filters) > 256 {
+		return errors.New("fake-ip mode requires between 1 and 256 compatibility filters")
+	}
+	for _, filter := range filters {
+		if strings.TrimSpace(filter) == "" || len(filter) > 255 || strings.ContainsAny(filter, "\r\n\x00") {
+			return errors.New("a fake-ip compatibility filter is empty or invalid")
+		}
+	}
+	return nil
+}
+
+func validateFakeIPRange(value string) error {
+	ip, network, err := net.ParseCIDR(strings.TrimSpace(value))
+	if err != nil || ip.To4() == nil {
+		return errors.New("fake-ip range must be a valid IPv4 CIDR")
+	}
+	ones, bits := network.Mask.Size()
+	if bits != 32 || ones < 8 || ones > 24 {
+		return errors.New("fake-ip range prefix must be between /8 and /24")
+	}
+	if network.IP.IsUnspecified() || network.IP.IsLoopback() || network.IP.IsMulticast() {
+		return errors.New("fake-ip range must not use unspecified, loopback, or multicast space")
+	}
+	return nil
+}
+
+func copyProtectedDNSMode(dns, currentDNS map[string]any, policy routerPolicy) error {
 	protectedKeys := []string{
 		"enhanced-mode",
 		"fake-ip-range",
@@ -382,7 +440,7 @@ func copyProtectedDNSMode(dns, currentDNS map[string]any, mode string) error {
 		delete(dns, key)
 	}
 
-	switch mode {
+	switch policy.DNSMode {
 	case "", "preserve":
 		for _, key := range protectedKeys {
 			if value, exists := currentDNS[key]; exists {
@@ -392,21 +450,30 @@ func copyProtectedDNSMode(dns, currentDNS map[string]any, mode string) error {
 	case "redir-host":
 		dns["enhanced-mode"] = "redir-host"
 	case "fake-ip":
-		if nonEmptyString(currentDNS["enhanced-mode"]) != "fake-ip" {
-			return errors.New("fake-ip mode requires a tested fake-ip baseline in the current router config")
+		if err := validateFakeIPRange(policy.FakeIPRange); err != nil {
+			return err
 		}
-		for _, key := range protectedKeys {
-			if value, exists := currentDNS[key]; exists {
-				dns[key] = value
-			}
+		if policy.FakeIPFilterMode != "blacklist" && policy.FakeIPFilterMode != "whitelist" {
+			return errors.New("fake-ip filter mode must be blacklist or whitelist")
 		}
+		if err := validFakeIPFilter(policy.FakeIPFilter); err != nil {
+			return err
+		}
+		dns["enhanced-mode"] = "fake-ip"
+		dns["fake-ip-range"] = policy.FakeIPRange
+		dns["fake-ip-filter-mode"] = policy.FakeIPFilterMode
+		filters := make([]any, 0, len(policy.FakeIPFilter))
+		for _, filter := range policy.FakeIPFilter {
+			filters = append(filters, strings.TrimSpace(filter))
+		}
+		dns["fake-ip-filter"] = filters
 	default:
-		return fmt.Errorf("unsupported protected DNS mode %q", mode)
+		return fmt.Errorf("unsupported protected DNS mode %q", policy.DNSMode)
 	}
 	return nil
 }
 
-func copyProtectedProfileSettings(result, current map[string]any) {
+func copyProtectedProfileSettings(result, current map[string]any, policy routerPolicy) {
 	profile := asMap(result["profile"])
 	if profile == nil {
 		profile = make(map[string]any)
@@ -414,7 +481,9 @@ func copyProtectedProfileSettings(result, current map[string]any) {
 	currentProfile := asMap(current["profile"])
 
 	delete(profile, "store-fake-ip")
-	if currentProfile != nil {
+	if policy.DNSMode == "fake-ip" {
+		profile["store-fake-ip"] = policy.StoreFakeIP
+	} else if currentProfile != nil {
 		if value, exists := currentProfile["store-fake-ip"]; exists {
 			profile["store-fake-ip"] = value
 		}
@@ -425,6 +494,88 @@ func copyProtectedProfileSettings(result, current map[string]any) {
 	} else {
 		result["profile"] = profile
 	}
+}
+
+var localHostnamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
+
+func validatePanelHostname(hostname string) error {
+	if hostname == "" {
+		return nil
+	}
+	if len(hostname) > 253 || !localHostnamePattern.MatchString(hostname) || strings.Contains(hostname, "..") {
+		return errors.New("panel hostname is invalid")
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		return errors.New("panel hostname must be a DNS name rather than an IP address")
+	}
+	return nil
+}
+
+func controllerCORS(controller, panelHostname string) (map[string]any, error) {
+	panelHostname = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(panelHostname), "."))
+	if panelHostname != "" {
+		if err := validatePanelHostname(panelHostname); err != nil {
+			return nil, err
+		}
+	}
+	ip, _, err := splitIPPort(controller)
+	if err != nil {
+		return nil, err
+	}
+	hosts := []string{ip.String()}
+	if panelHostname != "" {
+		hosts = append([]string{panelHostname}, hosts...)
+	}
+	origins := make([]any, 0, len(hosts)*2)
+	seen := make(map[string]bool)
+	for _, host := range hosts {
+		if strings.Contains(host, ":") {
+			host = "[" + host + "]"
+		}
+		for _, scheme := range []string{"http", "https"} {
+			origin := scheme + "://" + host
+			parsed, parseErr := url.Parse(origin)
+			if parseErr != nil || parsed.Hostname() == "" || parsed.Path != "" {
+				return nil, errors.New("failed to construct a safe controller CORS origin")
+			}
+			if !seen[origin] {
+				seen[origin] = true
+				origins = append(origins, origin)
+			}
+		}
+	}
+	return map[string]any{
+		"allow-origins":         origins,
+		"allow-private-network": true,
+	}, nil
+}
+
+func normalizeRouterPolicy(policy routerPolicy) (routerPolicy, error) {
+	if policy.TProxyPort == 0 {
+		policy.TProxyPort = defaultTProxyPort
+	}
+	if policy.TProxyPort < 1 || policy.TProxyPort > 65535 {
+		return policy, errors.New("TPROXY port is outside the valid range")
+	}
+	if policy.RoutingMark == 0 {
+		policy.RoutingMark = defaultRoutingMark
+	}
+	if policy.RoutingMark < 1 || policy.RoutingMark > 65535 || policy.RoutingMark == 1 || policy.RoutingMark == 3 {
+		return policy, errors.New("routing mark must be 2 or an integer from 4 through 65535")
+	}
+	if policy.ProxyMode == "" {
+		policy.ProxyMode = "tproxy"
+	}
+	if policy.ProxyMode != "tproxy" && policy.ProxyMode != "tun" && policy.ProxyMode != "mixed" {
+		return policy, errors.New("proxy mode must be tproxy, tun, or mixed")
+	}
+	if policy.TunStack == "" {
+		policy.TunStack = "system"
+	}
+	if policy.TunStack != "system" && policy.TunStack != "gvisor" && policy.TunStack != "mixed" {
+		return policy, errors.New("TUN stack must be system, gvisor, or mixed")
+	}
+	return policy, nil
 }
 
 func runtimeSignature(document map[string]any) map[string]any {
@@ -468,6 +619,11 @@ func runtimeRestartRequired(current, result map[string]any) bool {
 }
 
 func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) (map[string]any, []string, int, bool, error) {
+	var err error
+	policy, err = normalizeRouterPolicy(policy)
+	if err != nil {
+		return nil, nil, 0, false, err
+	}
 	if err := validateRemote(remote); err != nil {
 		return nil, nil, 0, false, err
 	}
@@ -476,7 +632,7 @@ func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) 
 	if err != nil {
 		return nil, nil, 0, false, err
 	}
-	secret, generatedSecret, err := controllerSecret(current)
+	secret, generatedSecret, err := controllerSecret(current, policy.ControllerSecret)
 	if err != nil {
 		return nil, nil, 0, false, err
 	}
@@ -491,6 +647,15 @@ func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) 
 	if err := validateDNSListen(dnsListen); err != nil {
 		return nil, nil, 0, false, err
 	}
+	_, controllerPort, _ := splitIPPort(controller)
+	_, dnsPort, _ := splitIPPort(dnsListen)
+	if controllerPort == dnsPort {
+		return nil, nil, 0, false, errors.New("controller and DNS listener ports must be different")
+	}
+	if (policy.ProxyMode == "tproxy" || policy.ProxyMode == "mixed") &&
+		(policy.TProxyPort == controllerPort || policy.TProxyPort == dnsPort) {
+		return nil, nil, 0, false, errors.New("TPROXY, controller, and DNS listener ports must be different")
+	}
 
 	result := cloneMap(remote)
 	for _, key := range unsafeTopLevelKeys {
@@ -499,15 +664,35 @@ func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) 
 
 	result["mode"] = "rule"
 	result["find-process-mode"] = "off"
-	result["tproxy-port"] = defaultTProxyPort
-	result["ipv6"] = false
+	delete(result, "tproxy-port")
+	if policy.ProxyMode == "tproxy" || policy.ProxyMode == "mixed" {
+		result["tproxy-port"] = policy.TProxyPort
+	}
+	if policy.ProxyMode == "tun" || policy.ProxyMode == "mixed" {
+		result["tun"] = map[string]any{
+			"enable":                true,
+			"device":                "clash-tun",
+			"stack":                 policy.TunStack,
+			"auto-route":            false,
+			"auto-redirect":         false,
+			"auto-detect-interface": false,
+		}
+	}
+	result["ipv6"] = policy.IPv6
 	result["allow-lan"] = false
-	result["routing-mark"] = defaultRoutingMark
+	result["routing-mark"] = policy.RoutingMark
 	result["external-controller"] = controller
 	result["secret"] = secret
 	result["external-ui"] = "./ui"
 	delete(result, "external-ui-url")
 	delete(result, "external-ui-name")
+	controllerCORSSettings, err := controllerCORS(controller, policy.PanelHostname)
+	if err != nil {
+		return nil, nil, 0, false, err
+	}
+	if controllerCORSSettings != nil {
+		result["external-controller-cors"] = controllerCORSSettings
+	}
 
 	if logLevel := nonEmptyString(current["log-level"]); logLevel != "" {
 		result["log-level"] = logLevel
@@ -526,12 +711,12 @@ func overlayRouterSettings(remote, current map[string]any, policy routerPolicy) 
 	}
 	dns["enable"] = true
 	dns["listen"] = dnsListen
-	dns["ipv6"] = false
-	if err := copyProtectedDNSMode(dns, currentDNS, policy.DNSMode); err != nil {
+	dns["ipv6"] = policy.IPv6
+	if err := copyProtectedDNSMode(dns, currentDNS, policy); err != nil {
 		return nil, nil, 0, false, err
 	}
 	result["dns"] = dns
-	copyProtectedProfileSettings(result, current)
+	copyProtectedProfileSettings(result, current, policy)
 
 	normalizedCaches, err := normalizeProviderCaches(result, policy.TrustedLocalProviderPath)
 	if err != nil {
@@ -589,6 +774,10 @@ func run(remotePath, currentPath, outputPath string, policy routerPolicy) error 
 		return err
 	}
 
+	policy, err = normalizeRouterPolicy(policy)
+	if err != nil {
+		return err
+	}
 	merged, normalized, normalizedCaches, generatedSecret, err := overlayRouterSettings(remote, current, policy)
 	if err != nil {
 		return err
@@ -605,6 +794,7 @@ func run(remotePath, currentPath, outputPath string, policy routerPolicy) error 
 		RuleProviders:             countMap(merged["rule-providers"]),
 		Rules:                     len(asSlice(merged["rules"])),
 		DNSMode:                   dnsMode(merged),
+		ProxyMode:                 policy.ProxyMode,
 		SourceSHA256:              sha256Hex(remoteBytes),
 		OutputSHA256:              sha256Hex(outputBytes),
 		GeneratedControllerSecret: generatedSecret,
@@ -639,14 +829,27 @@ func main() {
 	var currentPath string
 	var outputPath string
 	var policy routerPolicy
+	var fakeIPFilters repeatedStringFlag
 
 	flag.StringVar(&remotePath, "remote", "", "path to the downloaded remote Mihomo YAML")
 	flag.StringVar(&currentPath, "current", "", "path to the current router Mihomo YAML")
 	flag.StringVar(&outputPath, "output", "", "path for the merged router-safe YAML")
 	flag.StringVar(&policy.Controller, "controller", "", "private controller IP and port; defaults to the current config")
+	flag.StringVar(&policy.ControllerSecret, "controller-secret", "", "optional protected controller secret")
 	flag.StringVar(&policy.DNSListen, "dns-listen", "", "loopback DNS IP and port; defaults to the current config")
 	flag.StringVar(&policy.DNSMode, "dns-mode", "preserve", "protected DNS mode: preserve, redir-host, or fake-ip")
+	flag.StringVar(&policy.FakeIPRange, "fake-ip-range", "198.18.0.1/16", "protected fake-IP IPv4 range")
+	flag.StringVar(&policy.FakeIPFilterMode, "fake-ip-filter-mode", "blacklist", "protected fake-IP filter mode")
+	flag.Var(&fakeIPFilters, "fake-ip-filter", "repeatable protected fake-IP compatibility filter")
+	flag.BoolVar(&policy.StoreFakeIP, "store-fake-ip", true, "persist fake-IP mappings")
+	flag.IntVar(&policy.TProxyPort, "tproxy-port", defaultTProxyPort, "protected TPROXY listener port")
+	flag.IntVar(&policy.RoutingMark, "routing-mark", defaultRoutingMark, "protected Mihomo routing mark")
+	flag.StringVar(&policy.ProxyMode, "proxy-mode", "tproxy", "protected proxy mode: tproxy, tun, or mixed")
+	flag.StringVar(&policy.TunStack, "tun-stack", "system", "protected TUN stack")
+	flag.BoolVar(&policy.IPv6, "ipv6", false, "enable protected IPv6 behavior")
+	flag.StringVar(&policy.PanelHostname, "panel-hostname", "", "local dashboard DNS hostname")
 	flag.Parse()
+	policy.FakeIPFilter = []string(fakeIPFilters)
 
 	if remotePath == "" || currentPath == "" || outputPath == "" {
 		flag.Usage()

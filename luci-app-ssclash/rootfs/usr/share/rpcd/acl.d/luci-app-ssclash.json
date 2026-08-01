@@ -18,16 +18,11 @@
                 "/tmp/ssclash-profile-sync/status.json": [ "read" ],
                 "/etc/ssclash-party/links.txt": [ "read" ],
                 "/usr/share/ssclash-party/templates/catalog.json": [ "read" ],
-                "/tmp/sysinfo/model": [ "read" ],
                 "/sbin/logread": [ "exec" ],
                 "/bin/ls": [ "exec" ],
                 "/sbin/ip": [ "exec" ],
                 "/usr/sbin/brctl": [ "exec" ],
-                "/bin/sh": [ "exec" ],
-                "/bin/cat": [ "exec" ],
-                "/usr/bin/tr": [ "exec" ],
-                "/usr/bin/md5sum": [ "exec" ],
-                "/usr/bin/cut": [ "exec" ]
+                "/bin/sh": [ "exec" ]
             },
             "ubus": {
                 "file": [ "read", "stat", "exec" ],
@@ -50,6 +45,8 @@
                 "/etc/init.d/clash": [ "exec" ],
                 "/etc/init.d/ssclash-profile-sync": [ "exec" ],
                 "/usr/libexec/ssclash-profile-sync": [ "exec" ],
+                "/usr/libexec/ssclash-router-integration": [ "exec" ],
+                "/usr/libexec/ssclash-party-panel": [ "exec" ],
                 "/usr/bin/curl": [ "exec" ],
                 "/bin/gzip": [ "exec" ],
                 "/bin/mv": [ "exec" ],

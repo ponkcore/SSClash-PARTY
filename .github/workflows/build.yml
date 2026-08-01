@@ -163,10 +163,19 @@ jobs:
         run: |
           sh -n install-ssclash.sh
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration
           sh -n luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
+          sh -n luci-app-ssclash/rootfs/etc/init.d/clash
+          sh -n luci-app-ssclash/rootfs/opt/clash/bin/clash-rules
+          sh -n luci-app-ssclash/rootfs/etc/uci-defaults/99-ssclash-party
           shellcheck -s sh install-ssclash.sh
           shellcheck -s sh -e SC2034,SC3043 \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
           bash -n scripts/build-installer-manifest.sh
           bash -n scripts/classify-ci-changes.sh
@@ -176,6 +185,9 @@ jobs:
           bash -n tests/installer/test-installer.sh
           bash -n tests/profile-sync/fake-command
           bash -n tests/profile-sync/test-profile-sync.sh
+          bash -n tests/router-integration/fake-command
+          bash -n tests/router-integration/test-router-integration.sh
+          bash -n tests/migration/test-migration.sh
           shellcheck -s bash \
             scripts/build-installer-manifest.sh \
             scripts/classify-ci-changes.sh \
@@ -184,7 +196,10 @@ jobs:
             tests/ci/test-change-classifier.sh \
             tests/installer/test-installer.sh \
             tests/profile-sync/fake-command \
-            tests/profile-sync/test-profile-sync.sh
+            tests/profile-sync/test-profile-sync.sh \
+            tests/router-integration/fake-command \
+            tests/router-integration/test-router-integration.sh \
+            tests/migration/test-migration.sh
           (
             cd installer/channels
             sha256sum --check --strict preview.manifest.sha256
@@ -193,10 +208,19 @@ jobs:
           tests/ci/test-change-classifier.sh
           tests/installer/test-installer.sh
           tests/profile-sync/test-profile-sync.sh
-          node --check \
-            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js
+          tests/router-integration/test-router-integration.sh
+          tests/migration/test-migration.sh
+          for javascript in \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/dashboard.js \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/router.js \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/settings.js \
+            luci-app-ssclash/rootfs/www/ssclash-party-host.js; do
+            node --check "$javascript"
+          done
           jq empty \
-            luci-app-ssclash/rootfs/usr/share/rpcd/acl.d/luci-app-ssclash.json
+            luci-app-ssclash/rootfs/usr/share/rpcd/acl.d/luci-app-ssclash.json \
+            luci-app-ssclash/rootfs/usr/share/luci/menu.d/luci-app-ssclash.json
           git diff --check "$(git merge-base HEAD origin/main)" HEAD
 
   package:
@@ -357,6 +381,9 @@ jobs:
 
           merger="$inspect_root/usr/bin/ssclash-profile-merge"
           helper="$inspect_root/usr/libexec/ssclash-profile-sync"
+          migration="$inspect_root/usr/libexec/ssclash-party-migrate"
+          panel_helper="$inspect_root/usr/libexec/ssclash-party-panel"
+          router_helper="$inspect_root/usr/libexec/ssclash-router-integration"
           profile_config="$inspect_root/etc/config/ssclash_profile"
           links_file="$inspect_root/etc/ssclash-party/links.txt"
           active_config="$inspect_root/opt/clash/config.yaml"
@@ -365,16 +392,26 @@ jobs:
           party_version="$inspect_root/usr/share/ssclash-party/VERSION"
           test -x "$merger"
           test -x "$helper"
+          test -x "$migration"
+          test -x "$panel_helper"
+          test -x "$router_helper"
+          test -f "$inspect_root/www/ssclash-party-index.html"
+          test -f "$inspect_root/www/ssclash-party-host.js"
+          test -f "$inspect_root/www/luci-static/resources/view/ssclash/dashboard.js"
+          test -f "$inspect_root/www/luci-static/resources/view/ssclash/router.js"
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.3
+          test "$(cat "$party_version")" = 4.7.0-party.4
           jq -e \
             '.schema_version == 1 and any(.templates[]; .id == "russia")' \
             "$template_catalog" >/dev/null
           grep -q '^proxy-groups:' "$russia_template"
           grep -q '^rules:' "$russia_template"
           grep -q "option source_mode 'subscription'" "$profile_config"
+          grep -q "option active_profile 'default'" "$profile_config"
+          grep -q "config subscription 'default'" "$profile_config"
+          grep -q "config router 'router'" "$profile_config"
           grep -q "option rules_mode 'auto'" "$profile_config"
           strings "$merger" > "$inspect_root/merger.strings"
           grep -q 'runtime_restart_required' "$inspect_root/merger.strings"
@@ -398,9 +435,15 @@ jobs:
           esac
 
           sh -n "$helper"
+          sh -n "$migration"
+          sh -n "$panel_helper"
+          sh -n "$router_helper"
           sh -n "$inspect_root/etc/init.d/ssclash-profile-sync"
-          node --check \
-            "$inspect_root/www/luci-static/resources/view/ssclash/config.js"
+          for javascript in config dashboard router settings; do
+            node --check \
+              "$inspect_root/www/luci-static/resources/view/ssclash/$javascript.js"
+          done
+          node --check "$inspect_root/www/ssclash-party-host.js"
           jq empty \
             "$inspect_root/usr/share/rpcd/acl.d/luci-app-ssclash.json"
 
@@ -448,7 +491,7 @@ jobs:
   release:
     name: Create preview release
     needs:
-      - quality
+      - gate
       - package
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -494,7 +537,7 @@ jobs:
             echo
             echo "This is an independent downstream build, not an official zerolabnet release."
             echo
-            echo "It adds three configuration sources: adaptive subscriptions, local proxy links with PARTY templates, and manual YAML."
+            echo "It adds three configuration sources, saved subscription profiles, router-owned DNS and transport controls, and authenticated panel.router access."
             echo "Managed candidates use Mihomo validation, transactional activation, health checks, and rollback."
             echo
             echo "Every package is architecture-specific because it includes the profile merger."

@@ -22,7 +22,8 @@ SSClash PARTY is a LuCI application for OpenWrt that turns an adaptive
 subscription, a list of proxy share links, or manually maintained YAML into a
 validated Mihomo configuration. It applies managed configurations with health
 checks and automatic rollback while keeping router-critical integration under
-local control.
+local control. Multiple named subscription profiles can be saved, validated,
+and switched without copying URLs or editing YAML.
 
 > [!IMPORTANT]
 > PARTY is currently a public preview. Install only a package that exactly
@@ -43,6 +44,8 @@ PARTY handles that boundary in LuCI:
   format;
 - it can retain a complete provider policy or combine imported proxies with a
   trusted local template;
+- it keeps multiple named subscription profiles while activating only one
+  explicit profile at a time;
 - it protects the controller, DNS, TProxy, routing, and provider-cache
   settings that belong to the router;
 - it validates the exact candidate with the installed Mihomo core before
@@ -57,7 +60,7 @@ exclusive sources.
 
 | Source | What you provide | Routing policy | Scheduled updates |
 |---|---|---|---|
-| **Subscription** | One HTTPS subscription URL | Keep a complete remote policy automatically, or always apply the selected PARTY template | Yes |
+| **Subscription** | Named HTTPS subscription profiles; one active profile at a time | Keep a complete remote policy automatically, or always apply the selected PARTY template | Yes, for the active profile |
 | **Proxy links** | A newline-separated list of Mihomo-compatible share links | Selected PARTY template | Not needed; the source is local |
 | **Manual YAML** | A complete Mihomo configuration | Fully controlled by the user | No |
 
@@ -81,6 +84,18 @@ so later group and rule changes can arrive with the subscription. Nodes-only
 and URI responses use the selected PARTY template. Select **Always use the
 selected PARTY template** to import only proxies even when the provider sends
 a complete policy.
+
+### Saved subscription profiles
+
+Use **Add profile** to retain another provider or account. Each profile owns
+its URL, policy choice, template, update interval, User-Agent, and optional
+HWID. **Validate without switching** downloads and tests an inactive profile
+without touching the active YAML. **Switch to this profile** performs the same
+transactional activation used by updates: a running service is hot-reloaded
+or guarded-restarted as needed, while a stopped service remains stopped.
+
+Only the selected active profile receives scheduled updates. PARTY does not
+yet aggregate nodes from several subscriptions into one runtime profile.
 
 ### Proxy share links
 
@@ -114,22 +129,30 @@ the previous profile.
 The scheduled updater runs only in Subscription mode. It never starts a Clash
 service that the operator deliberately stopped.
 
+Router-owned settings are edited separately under **Services → SSClash →
+Router Integration**. Changing redir-host/fake-IP, TPROXY/TUN, listener, mark,
+or controller settings creates a staged candidate, runs compatibility checks,
+validates it with Mihomo, and uses the same guarded activation and rollback
+path.
+
 ## What PARTY includes
 
 | Capability | What it means |
 |---|---|
 | Adaptive source discovery | Complete YAML, nodes-only YAML, plaintext URIs, and Base64 URI lists can use the same subscription field |
 | Optional provider policy | Preserve provider-managed groups and rules, or force a trusted PARTY template |
+| Saved subscription profiles | Store, validate, rename, and transactionally switch named subscriptions without exposing their URLs |
 | Guarded activation | Mihomo validation, atomic replacement, post-apply health checks, and rollback |
-| Router-owned safety overlay | Authenticated controller, local dashboard, DNS policy, TProxy integration, routing-loop prevention, and confined provider caches stay protected |
+| Router Integration | Deliberate redir-host/fake-IP selection, compatibility filters, TPROXY/TUN controls, routing-loop prevention, and controller settings stay protected from subscriptions |
 | Remnawave compatibility | Client negotiation and optional stable HWID headers without creating new identities on device-limit errors |
+| Friendly authenticated panel | `http://panel.router` uses the ordinary LuCI login and then opens packaged Zashboard without putting the controller token in an HTTP request path |
 | LuCI workflow | Source selection, status, logs, local rulesets, service control, Mihomo management, and authenticated Zashboard access |
 | Template catalog | The initial **Russia** policy template contains public rule providers and no proxy credentials or router secrets |
 
 ## Supported packages
 
 The current public preview,
-[`v4.7.0-party.3`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.3),
+[`v4.7.0-party.4`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.4),
 publishes the following architecture-specific packages:
 
 | OpenWrt release | Target | Package architecture | Format | Validation level |
@@ -227,13 +250,25 @@ Management** and install a compatible core if one is not already present.
 Open **Services → SSClash → Configuration**:
 
 1. select Subscription, Proxy links, or Manual YAML;
-2. enter the selected source and routing-policy settings;
-3. use **Apply now** to prepare a stopped service, or **Apply & guarded start**
+2. select or add a saved subscription profile when using Subscription mode;
+3. enter the selected source and routing-policy settings;
+4. use **Apply now** to prepare a stopped service, or **Apply & guarded start**
    for the first activation;
-4. inspect the non-secret status summary and open Zashboard with **Open
+5. inspect the non-secret status summary and open Zashboard with **Open
    Dashboard**.
 
 Saving source settings alone never replaces the active profile.
+
+Open **Services → SSClash → Router Integration** to select redir-host or
+fake-IP and, when needed, adjust advanced transport and controller values.
+Use the compatibility-and-apply action; do not edit generated YAML for these
+managed settings.
+
+When Friendly panel address is enabled, browse to `http://panel.router` from a
+LAN client. An unauthenticated browser first sees the normal LuCI login. After
+successful login, the same request continues directly to Zashboard. This is
+plain LAN HTTP by default, so browsers correctly label it **Not secure**; the
+Mihomo controller still requires its private token.
 
 ## Technical trust boundary
 
@@ -243,19 +278,22 @@ policy data from OpenWrt integration.
 | Subscription or template may own | PARTY keeps under local control |
 |---|---|
 | Proxy nodes and credentials | Routing mode, transparent listener, and routing mark |
-| Proxy groups and membership | Private authenticated controller and packaged dashboard path |
-| HTTP and inline proxy providers | Loopback DNS listener and selected DNS interception mode |
-| HTTP and inline rule providers | Disabled TUN, IPv6, process matching, and client listeners |
+| Proxy groups and membership | Private authenticated controller, exact panel origins, and packaged dashboard path |
+| HTTP and inline proxy providers | Loopback DNS listener, selected redir-host/fake-IP mode, range, filters, and persistence |
+| HTTP and inline rule providers | Locally selected TPROXY, TUN, or mixed transport; IPv6 remains disabled until leak-safe routing is implemented |
 | Rules, rule order, and rule targets | Provider-cache confinement and rejection of arbitrary local file providers |
 | Safe general Mihomo policy fields | Validation, activation, health checks, backups, and rollback |
 
-A subscription cannot silently enable fake-IP. Fake-IP is supported only after
-a deliberate local migration establishes and tests a compatible baseline.
-Manual YAML mode remains fully user-controlled.
+A subscription cannot silently enable fake-IP. The local compatibility wizard
+checks the fake-IP range against current IPv4 routes, requires LAN/local and
+enabled-panel exclusions, enables mapping persistence by default, validates
+the generated profile, and rolls back a failed runtime migration. Manual YAML mode remains
+fully user-controlled and does not inherit Router Integration settings.
 
 ## Public preview limitations
 
-- One subscription URL is supported per configuration.
+- Multiple subscription profiles can be saved, but only one is active and
+  scheduled at a time; multi-subscription aggregation is not implemented.
 - Russia is the only packaged routing template.
 - Proxy links are local input and do not have a scheduled downloader.
 - Managed source input is limited to 5 MiB, with additional per-line limits.
@@ -279,14 +317,22 @@ can hide it with **Display GLOBAL by mode**.
 ### Why does the controller URL return HTTP 401?
 
 The bare `http://ROUTER_IP:9090/` endpoint is the authenticated Mihomo API, not
-the dashboard landing page. Use **Open Dashboard** in LuCI; it opens the
+the dashboard landing page. Use `http://panel.router` or **Open Dashboard** in
+LuCI. The friendly address authenticates through LuCI first and then opens the
 packaged Zashboard with protected fragment-based connection parameters.
+
+### Can I save and switch between several subscriptions?
+
+Yes. Each named profile is stored independently and can be validated while it
+is inactive. Switching a running profile is transactional. Only one profile
+is active at a time, and PARTY does not yet merge several subscriptions into a
+single proxy pool.
 
 ### Can a subscription switch my LAN to fake-IP?
 
-No. A remote profile cannot silently change the protected DNS model. A tested
-local fake-IP baseline can be adopted deliberately and then preserved by
-managed updates.
+No. A remote profile cannot silently change the protected DNS model. Enable
+fake-IP deliberately under **Router Integration**; PARTY checks and corrects
+the local compatibility baseline before guarded activation.
 
 ### Is PARTY limited to Cudy routers?
 
@@ -305,6 +351,7 @@ must therefore match the artifact exactly.
 |---|---|
 | [Safe automatic installer](docs/installer.md) | One-command setup, local device detection, exact matching, manifests, checksums, conflicts, and release contract |
 | [Configuration sources](docs/configuration-sources.md) | Complete user contract for Subscription, Proxy links, Manual YAML, templates, storage, and rollback |
+| [Router Integration and friendly dashboard](docs/router-integration.md) | redir-host/fake-IP, compatibility checks, transparent transport, controller protection, and `panel.router` login flow |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Trust boundary, guarded start, DNS modes, dashboard behavior, UCI settings, and recovery |
 | [PARTY downstream policy](PARTY.md) | Compatibility, branch, release, privacy, and upstream relationship contracts |
 | [Upstream synchronization](docs/upstream-sync.md) | Maintainer workflow for reviewing and integrating upstream changes |

@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -108,6 +108,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./rootfs/etc/config/ssclash_profile $(1)/etc/config/
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./rootfs/etc/uci-defaults/99-ssclash-party $(1)/etc/uci-defaults/
 	$(INSTALL_DIR) $(1)/etc/ssclash-party
 	$(INSTALL_CONF) ./rootfs/etc/ssclash-party/links.txt $(1)/etc/ssclash-party/
 
@@ -116,6 +118,9 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-profile-sync $(1)/usr/libexec/
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-migrate $(1)/usr/libexec/
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-panel $(1)/usr/libexec/
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-router-integration $(1)/usr/libexec/
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./rootfs/etc/hotplug.d/iface/40-clash $(1)/etc/hotplug.d/iface/
@@ -128,6 +133,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/opt/clash
 	$(INSTALL_CONF) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
 	$(INSTALL_DIR) $(1)/opt/clash/managed-sources
+	$(INSTALL_DIR) $(1)/opt/clash/profile-cache
 
 	$(INSTALL_DIR) $(1)/opt/clash/ui
 	$(CP) ./rootfs/opt/clash/ui/* $(1)/opt/clash/ui/
@@ -145,6 +151,8 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/ssclash
 	$(CP) ./rootfs/www/luci-static/resources/view/ssclash/* $(1)/www/luci-static/resources/view/ssclash/
+	$(INSTALL_DATA) ./rootfs/www/ssclash-party-index.html $(1)/www/
+	$(INSTALL_DATA) ./rootfs/www/ssclash-party-host.js $(1)/www/
 
 	$(INSTALL_DIR) $(1)/opt/clash/lst
 
@@ -177,7 +185,7 @@ fi
 if [ -f /usr/share/ssclash-party/VERSION ]; then
 	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
 	case "$$detected_version" in
-		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3)
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4)
 			PREVIOUS_PARTY_VERSION="$$detected_version"
 			;;
 	esac
@@ -215,29 +223,16 @@ fi
 	rm -f /tmp/luci-*
 	chmod 600 /etc/config/ssclash_profile 2>/dev/null || true
 	chmod 600 /opt/clash/config.yaml 2>/dev/null || true
-	mkdir -p /etc/ssclash-party /opt/clash/managed-sources
-	chmod 700 /etc/ssclash-party /opt/clash/managed-sources 2>/dev/null || true
+	mkdir -p /etc/ssclash-party /opt/clash/managed-sources /opt/clash/profile-cache
+	chmod 700 /etc/ssclash-party /opt/clash/managed-sources /opt/clash/profile-cache 2>/dev/null || true
 	[ -f /etc/ssclash-party/links.txt ] || : > /etc/ssclash-party/links.txt
 	chmod 600 /etc/ssclash-party/links.txt 2>/dev/null || true
 
-	if ! uci -q get ssclash_profile.main.source_mode >/dev/null; then
-		if [ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
-			uci -q set ssclash_profile.main.source_mode=subscription
-		else
-			uci -q set ssclash_profile.main.source_mode=manual
-		fi
-	fi
-	uci -q get ssclash_profile.main.rules_mode >/dev/null || \
-		uci -q set ssclash_profile.main.rules_mode=auto
-	uci -q get ssclash_profile.main.template_id >/dev/null || \
-		uci -q set ssclash_profile.main.template_id=russia
-	uci -q get ssclash_profile.main.dns_mode >/dev/null || \
-		uci -q set ssclash_profile.main.dns_mode=preserve
-	if [ "$$(uci -q get ssclash_profile.main.user_agent)" = "mihomo/1.19.29" ]; then
-		uci -q set ssclash_profile.main.user_agent=auto
-	fi
-	uci -q commit ssclash_profile
+	/usr/libexec/ssclash-party-migrate || exit 1
 	rm -f /etc/config/ssclash_profile.apk-new
+	if /usr/libexec/ssclash-party-panel apply >/dev/null 2>&1; then
+		rm -f /etc/uci-defaults/99-ssclash-party
+	fi
 
 	# On first install the default config.yaml is just a usable example
 	# (no real proxies configured). Prevent auto-start on next boot so the
@@ -279,10 +274,11 @@ fi
 		if [ "$$CLASH_SHOULD_ENABLE" = "1" ]; then
 			CLASH_SHOULD_RUN=1
 		fi
+		ACTIVE_PROFILE="$$(uci -q get ssclash_profile.main.active_profile)"
 		if [ "$$LEGACY_LIFECYCLE_RECOVERY" = "1" ] && \
 			[ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
-			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ] && \
-			[ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
+			[ "$$(uci -q get ssclash_profile.$$ACTIVE_PROFILE.enabled)" = "1" ] && \
+			[ -n "$$(uci -q get ssclash_profile.$$ACTIVE_PROFILE.url)" ]; then
 			CLASH_SHOULD_ENABLE=1
 			CLASH_SHOULD_RUN=1
 		fi
@@ -299,8 +295,8 @@ fi
 		fi
 
 		if [ "$$(uci -q get ssclash_profile.main.source_mode)" = "subscription" ] && \
-			[ "$$(uci -q get ssclash_profile.main.enabled)" = "1" ] && \
-			[ -n "$$(uci -q get ssclash_profile.main.url)" ]; then
+			[ "$$(uci -q get ssclash_profile.$$ACTIVE_PROFILE.enabled)" = "1" ] && \
+			[ -n "$$(uci -q get ssclash_profile.$$ACTIVE_PROFILE.url)" ]; then
 			/etc/init.d/ssclash-profile-sync enable 2>/dev/null || true
 			/etc/init.d/ssclash-profile-sync start 2>/dev/null || true
 		else
@@ -317,6 +313,7 @@ define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	if [ "$${PKG_UPGRADE:-0}" != "1" ]; then
+		/usr/libexec/ssclash-party-panel remove >/dev/null 2>&1 || true
 		/etc/init.d/ssclash-profile-sync stop 2>/dev/null || true
 		/etc/init.d/ssclash-profile-sync disable 2>/dev/null || true
 	fi
@@ -343,10 +340,12 @@ define Package/$(PKG_NAME)/postrm
 	rm -f /opt/clash/.dns_backup
 	rm -rf /tmp/clash
 	rm -rf /www/luci-static/resources/view/ssclash
+	rm -f /www/ssclash-party-index.html /www/ssclash-party-host.js
 	rm -f /usr/lib/lua/luci/i18n/ssclash.*.lmo
 	rm -f /opt/clash/.config.yaml.upgrade.bak
 	rm -f /etc/hotplug.d/iface/40-clash
 	rm -f /etc/hotplug.d/net/99-clash-tun
+	rm -f /etc/uci-defaults/99-ssclash-party
 	rm -f /etc/apk/protected_paths.d/ssclash.list
 	rm -rf /tmp/ssclash-profile-sync
 	rm -rf /tmp/ssclash-profile-sync.lock

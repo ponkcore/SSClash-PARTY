@@ -167,18 +167,6 @@ function hostForUrl(host) {
     return host.includes(':') ? `[${host}]` : host;
 }
 
-function computeUiPath(externalUiName, externalUi) {
-    if (externalUiName) {
-        const name = externalUiName.replace(/(^\/+|\/+$)/g, '');
-        return `/${name}/`;
-    }
-    if (externalUi && !/[\/\\\.]/.test(externalUi)) {
-        const name = externalUi.trim();
-        return `/${name}/`;
-    }
-    return '/ui/';
-}
-
 async function openDashboard() {
     try {
         if (!(await getServiceStatus())) {
@@ -186,28 +174,10 @@ async function openDashboard() {
             return;
         }
 
-        const config = await fs.read('/opt/clash/config.yaml');
-        const ec = parseYamlValue(config, 'external-controller');
-        const ecTls = parseYamlValue(config, 'external-controller-tls');
-        const secret = parseYamlValue(config, 'secret');
-        const externalUi = parseYamlValue(config, 'external-ui');
-        const externalUiName = parseYamlValue(config, 'external-ui-name');
-
-        const baseHost = window.location.hostname;
-        const basePort = '9090';
-        const useTls = !!ecTls;
-
-        const { host, port } = normalizeHostPortFromAddr(useTls ? ecTls : ec, baseHost, basePort);
-        const scheme = useTls ? 'https:' : 'http:';
-        const uiPath = computeUiPath(externalUiName, externalUi);
-
-        const qp = new URLSearchParams();
-        if (secret) qp.set('secret', secret);
-        qp.set('hostname', host);
-        qp.set('port', port);
-        const url = `${scheme}//${hostForUrl(host)}:${port}${uiPath}#/setup?${qp.toString()}`;
-
-        const newWindow = window.open(url, '_blank');
+        const newWindow = window.open(
+            L.url('admin/services/ssclash/dashboard'),
+            '_blank'
+        );
         if (!newWindow) {
             ui.addNotification(null, E('p', _('Popup was blocked. Please allow popups for this site.')), 'warning');
         }
@@ -248,7 +218,7 @@ async function initializeAceEditor(content, readOnly) {
 // =============================================================================
 
 // Keep in sync with the PARTY release tag.
-const SSCLASH_VERSION = '4.7.0-party.3';
+const SSCLASH_VERSION = '4.7.0-party.4';
 
 const SSCLASH_REPO = 'ponkcore/SSClash-PARTY';
 const SSCLASH_RELEASES_URL = 'https://github.com/' + SSCLASH_REPO + '/releases';
@@ -305,15 +275,42 @@ return view.extend({
         let profileStatus = parseProfileStatus(data[2]);
         const storedLinks = String(data[3] || '');
         const running = await getServiceStatus();
-        const profileURL = uci.get('ssclash_profile', 'main', 'url') || '';
-        const profileInterval = uci.get('ssclash_profile', 'main', 'interval') || '3600';
-        const profileEnabled = uci.get('ssclash_profile', 'main', 'enabled') === '1';
-        const profileUserAgent = uci.get('ssclash_profile', 'main', 'user_agent') || 'auto';
-        const profileHWID = uci.get('ssclash_profile', 'main', 'hwid') || '';
+        let subscriptionProfiles = uci.sections('ssclash_profile', 'subscription');
+        if (!subscriptionProfiles.length) {
+            const sectionID = uci.add('ssclash_profile', 'subscription', 'default');
+            uci.set('ssclash_profile', sectionID, 'name', 'Default');
+            uci.set('ssclash_profile', sectionID, 'enabled', '0');
+            uci.set('ssclash_profile', sectionID, 'url', '');
+            uci.set('ssclash_profile', sectionID, 'rules_mode', 'auto');
+            uci.set('ssclash_profile', sectionID, 'template_id', 'russia');
+            uci.set('ssclash_profile', sectionID, 'interval', '3600');
+            uci.set('ssclash_profile', sectionID, 'user_agent', 'auto');
+            uci.set('ssclash_profile', sectionID, 'device_os', 'OpenWrt');
+            subscriptionProfiles = uci.sections('ssclash_profile', 'subscription');
+        }
+        let activeProfileID = uci.get('ssclash_profile', 'main', 'active_profile') || 'default';
+        if (!subscriptionProfiles.some(function(profile) {
+            return profile['.name'] === activeProfileID;
+        })) {
+            activeProfileID = subscriptionProfiles[0]['.name'];
+        }
+        let selectedProfileID = activeProfileID;
+        const selectedProfile = function() {
+            return subscriptionProfiles.find(function(profile) {
+                return profile['.name'] === selectedProfileID;
+            }) || subscriptionProfiles[0];
+        };
+        const profileOption = function(option, fallback) {
+            const profile = selectedProfile();
+            const value = profile ? profile[option] : null;
+            return value == null || value === '' ? fallback : value;
+        };
         const configuredSourceMode = uci.get('ssclash_profile', 'main', 'source_mode') ||
-            (profileURL ? 'subscription' : 'manual');
-        const configuredRulesMode = uci.get('ssclash_profile', 'main', 'rules_mode') || 'auto';
-        const configuredTemplateID = uci.get('ssclash_profile', 'main', 'template_id') || 'russia';
+            (profileOption('url', '') ? 'subscription' : 'manual');
+        const configuredRulesMode = profileOption('rules_mode', 'auto');
+        let mainTemplateID = uci.get('ssclash_profile', 'main', 'template_id') || 'russia';
+        const configuredTemplateID = configuredSourceMode === 'subscription'
+            ? profileOption('template_id', 'russia') : mainTemplateID;
         let manualActions = null;
         let configDescription = null;
 
@@ -352,7 +349,7 @@ return view.extend({
             'placeholder': 'https://subscription.example/profile',
             'style': 'width: 100%; min-width: 260px;'
         });
-        subscriptionInput.value = profileURL;
+        subscriptionInput.value = profileOption('url', '');
 
         const rulesModeSelect = E('select', {
             'class': 'cbi-input-select',
@@ -381,7 +378,7 @@ return view.extend({
             'placeholder': 'auto',
             'style': 'width: 100%;'
         });
-        userAgentInput.value = profileUserAgent;
+        userAgentInput.value = profileOption('user_agent', 'auto');
 
         const hwidInput = E('input', {
             'class': 'cbi-input-text',
@@ -391,8 +388,8 @@ return view.extend({
             'placeholder': _('Generated automatically only when required'),
             'style': 'width: 100%;'
         });
-        hwidInput.value = profileHWID;
-        hwidInput.dataset.originalValue = profileHWID;
+        hwidInput.value = profileOption('hwid', '');
+        hwidInput.dataset.originalValue = profileOption('hwid', '');
 
         const showHWIDButton = E('button', {
             'class': 'btn',
@@ -424,12 +421,37 @@ return view.extend({
             'step': '60',
             'style': 'width: 130px;'
         });
-        intervalInput.value = profileInterval;
+        intervalInput.value = profileOption('interval', '3600');
 
         const autoUpdateInput = E('input', {
             'type': 'checkbox'
         });
-        autoUpdateInput.checked = profileEnabled;
+        autoUpdateInput.checked = profileOption('enabled', '0') === '1';
+
+        const profileSelect = E('select', {
+            'class': 'cbi-input-select',
+            'style': 'width: 100%; max-width: 360px;'
+        });
+        const profileNameInput = E('input', {
+            'class': 'cbi-input-text',
+            'type': 'text',
+            'maxlength': '64',
+            'autocomplete': 'off',
+            'spellcheck': 'false',
+            'style': 'width: 100%; max-width: 360px;'
+        });
+
+        const renderProfileOptions = function() {
+            profileSelect.replaceChildren();
+            subscriptionProfiles.forEach(function(profile) {
+                const id = profile['.name'];
+                const name = String(profile.name || id);
+                const suffix = id === activeProfileID ? _(' (active)') : '';
+                profileSelect.appendChild(E('option', { 'value': id }, name + suffix));
+            });
+            profileSelect.value = selectedProfileID;
+        };
+        renderProfileOptions();
 
         const linksList = E('div', {
             'style': 'display: flex; flex-direction: column; gap: 8px;'
@@ -517,6 +539,7 @@ return view.extend({
             const state = status.state || 'idle';
             const summary = status.summary || null;
             const metrics = [];
+            if (status.profile_id) metrics.push(_('Profile: %s').format(status.profile_id));
             if (summary) {
                 if (summary.source_format) metrics.push(_('Source: %s').format(summary.source_format));
                 if (summary.rules_source) metrics.push(_('Policy: %s').format(summary.rules_source));
@@ -557,7 +580,8 @@ return view.extend({
 
         const profileButtons = [];
         const managedInputs = [
-            sourceModeSelect, subscriptionInput, rulesModeSelect, templateSelect,
+            sourceModeSelect, profileSelect, profileNameInput,
+            subscriptionInput, rulesModeSelect, templateSelect,
             intervalInput, autoUpdateInput, userAgentInput, hwidInput,
             showSubscriptionButton, showHWIDButton, bulkLinksInput, addBulkLinksButton
         ];
@@ -602,6 +626,7 @@ return view.extend({
             const templateID = templateSelect.value;
             const userAgent = userAgentInput.value.trim() || 'auto';
             const hwid = hwidInput.value.trim();
+            const profileName = profileNameInput.value.trim();
 
             if (!['subscription', 'links', 'manual'].includes(sourceMode)) {
                 throw new Error(_('Select a valid configuration source.'));
@@ -613,19 +638,26 @@ return view.extend({
             if (sourceMode === 'subscription' && enabled && !url) {
                 throw new Error(_('Enter a subscription URL before enabling automatic updates.'));
             }
-            if (!Number.isInteger(interval) || interval < 300 || interval > 604800) {
+            if (sourceMode === 'subscription' &&
+                (!profileName || profileName.length > 64 || /[\u0000-\u001f\u007f]/.test(profileName))) {
+                throw new Error(_('Profile name must contain 1 through 64 printable characters.'));
+            }
+            if (sourceMode === 'subscription' &&
+                (!Number.isInteger(interval) || interval < 300 || interval > 604800)) {
                 throw new Error(_('Update interval must be between 300 and 604800 seconds.'));
             }
-            if (!['auto', 'template'].includes(rulesMode) ||
-                !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(templateID)) {
+            if (sourceMode !== 'manual' && (!['auto', 'template'].includes(rulesMode) ||
+                !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(templateID))) {
                 throw new Error(_('The routing-policy selection is invalid.'));
             }
-            if (userAgent.length > 256 || /[\r\n]/.test(userAgent) ||
-                hwid.length > 512 || /[\r\n]/.test(hwid)) {
+            if (sourceMode === 'subscription' && (userAgent.length > 256 || /[\r\n]/.test(userAgent) ||
+                hwid.length > 512 || /[\r\n]/.test(hwid))) {
                 throw new Error(_('A subscription request header contains an invalid value.'));
             }
             return {
                 sourceMode: sourceMode,
+                profileID: selectedProfileID,
+                profileName: profileName,
                 url: url,
                 interval: String(interval),
                 enabled: enabled,
@@ -682,6 +714,22 @@ return view.extend({
             }
         };
 
+        const reconfigureProfileUpdater = async function(sourceMode, profileID) {
+            const enabled = uci.get('ssclash_profile', profileID, 'enabled') === '1';
+            const url = uci.get('ssclash_profile', profileID, 'url') || '';
+            let result;
+            if (sourceMode === 'subscription' && enabled && url) {
+                result = await fs.exec(PROFILE_INIT, ['enable']);
+                if (result.code === 0) result = await fs.exec(PROFILE_INIT, ['restart']);
+            } else {
+                result = await fs.exec(PROFILE_INIT, ['stop']);
+                if (result.code === 0) result = await fs.exec(PROFILE_INIT, ['disable']);
+            }
+            if (result.code !== 0) {
+                throw new Error(_('The managed update service could not be reconfigured.'));
+            }
+        };
+
         const saveProfileSettings = async function(showNotification) {
             const settings = collectProfileSettings();
 
@@ -689,40 +737,48 @@ return view.extend({
                 await writeLinksFile(settings.links);
             }
             uci.set('ssclash_profile', 'main', 'source_mode', settings.sourceMode);
-            uci.set('ssclash_profile', 'main', 'rules_mode', settings.rulesMode);
-            uci.set('ssclash_profile', 'main', 'template_id', settings.templateID);
-            uci.set('ssclash_profile', 'main', 'url', settings.url);
-            uci.set('ssclash_profile', 'main', 'interval', settings.interval);
-            uci.set('ssclash_profile', 'main', 'enabled', settings.enabled ? '1' : '0');
-            uci.set('ssclash_profile', 'main', 'user_agent', settings.userAgent);
-            if (settings.hwid !== hwidInput.dataset.originalValue) {
-                uci.set('ssclash_profile', 'main', 'hwid', settings.hwid);
+            if (settings.sourceMode === 'subscription') {
+                uci.set('ssclash_profile', settings.profileID, 'name', settings.profileName);
+                uci.set('ssclash_profile', settings.profileID, 'rules_mode', settings.rulesMode);
+                uci.set('ssclash_profile', settings.profileID, 'template_id', settings.templateID);
+                uci.set('ssclash_profile', settings.profileID, 'url', settings.url);
+                uci.set('ssclash_profile', settings.profileID, 'interval', settings.interval);
+                uci.set('ssclash_profile', settings.profileID, 'enabled', settings.enabled ? '1' : '0');
+                uci.set('ssclash_profile', settings.profileID, 'user_agent', settings.userAgent);
+                if (settings.hwid !== hwidInput.dataset.originalValue) {
+                    uci.set('ssclash_profile', settings.profileID, 'hwid', settings.hwid);
+                }
+            } else if (settings.sourceMode === 'links') {
+                uci.set('ssclash_profile', 'main', 'rules_mode', 'template');
+                uci.set('ssclash_profile', 'main', 'template_id', settings.templateID);
+                mainTemplateID = settings.templateID;
             }
             await uci.save();
             await callUciCommit('ssclash_profile');
             hwidInput.dataset.originalValue = settings.hwid;
 
-            let result;
-            if (settings.sourceMode === 'subscription' && settings.enabled && settings.url) {
-                result = await fs.exec(PROFILE_INIT, ['enable']);
-                if (result.code === 0) {
-                    result = await fs.exec(PROFILE_INIT, ['restart']);
-                }
-            } else {
-                result = await fs.exec(PROFILE_INIT, ['stop']);
-                if (result.code === 0) {
-                    result = await fs.exec(PROFILE_INIT, ['disable']);
-                }
+            if (settings.sourceMode === 'subscription') {
+                const profile = selectedProfile();
+                Object.assign(profile, {
+                    name: settings.profileName,
+                    rules_mode: settings.rulesMode,
+                    template_id: settings.templateID,
+                    url: settings.url,
+                    interval: settings.interval,
+                    enabled: settings.enabled ? '1' : '0',
+                    user_agent: settings.userAgent,
+                    hwid: settings.hwid
+                });
+                renderProfileOptions();
             }
-            if (result.code !== 0) {
-                throw new Error(_('The managed update service could not be reconfigured.'));
-            }
+
+            await reconfigureProfileUpdater(settings.sourceMode, activeProfileID);
 
             managedProfileConfigured = settings.sourceMode !== 'manual';
             updateSourceVisibility();
             if (showNotification) {
                 ui.addNotification(null, E('p',
-                    _('Configuration-source settings saved. The active YAML was not changed.')
+                    _('Configuration-source settings saved. The active YAML and selected runtime profile were not changed.')
                 ), 'info');
             }
             return settings;
@@ -747,13 +803,22 @@ return view.extend({
                 }
                 renderProfileStatus({
                     state: 'working',
+                    profile_id: selectedProfileID,
                     message: action === 'sync-start'
                         ? _('Generating, validating and starting with rollback protection…')
-                        : _('Generating and validating the managed configuration…'),
+                        : action === 'activate'
+                            ? _('Validating and switching the active subscription profile…')
+                            : action === 'validate'
+                                ? _('Downloading and validating the saved profile without activation…')
+                                : _('Generating and validating the managed configuration…'),
                     time: Math.floor(Date.now() / 1000)
                 });
 
-                const result = await fs.exec(PROFILE_HELPER, [action]);
+                const actionArguments = [ action ];
+                if (action === 'validate' || action === 'activate') {
+                    actionArguments.push(selectedProfileID);
+                }
+                const result = await fs.exec(PROFILE_HELPER, actionArguments);
                 const status = await refreshProfileStatus(result.stdout);
                 if (result.code !== 0) {
                     throw new Error(status.message || _('Managed profile operation failed.'));
@@ -766,10 +831,26 @@ return view.extend({
                 }
 
                 ui.addNotification(null, E('p',
-                    action === 'sync-start'
+                    action === 'activate'
+                        ? _('The selected subscription profile is now active. A running service was switched transactionally; a stopped service remains stopped.')
+                        : action === 'validate'
+                            ? _('The subscription profile is valid and was saved as a last-good candidate without activation.')
+                            : action === 'sync-start'
                         ? _('Managed configuration is active and passed all health checks.')
                         : _('Managed configuration was applied successfully.')
                 ), 'info');
+
+                if (action === 'activate') {
+                    activeProfileID = selectedProfileID;
+                    try {
+                        await reconfigureProfileUpdater('subscription', activeProfileID);
+                    } catch (error) {
+                        ui.addNotification(null, E('p', _(
+                            'The profile switched successfully, but its automatic-update daemon could not be reconfigured: %s'
+                        ).format(error.message)), 'warning');
+                    }
+                    renderProfileOptions();
+                }
 
                 try {
                     const updatedConfig = await fs.read('/opt/clash/config.yaml');
@@ -779,7 +860,9 @@ return view.extend({
                     }
                 } catch (_e) {}
 
-                if (action === 'sync-start' &&
+                if (action === 'activate' && !running) {
+                    window.setTimeout(function() { window.location.reload(); }, 300);
+                } else if ((action === 'sync-start' || action === 'activate') &&
                     await view_ssclash_utils.waitForServiceStatus(getServiceStatus, true, 15000)) {
                     window.location.reload();
                 }
@@ -790,6 +873,7 @@ return view.extend({
                 ), 'error');
             } finally {
                 setProfileBusy(false);
+                updateSourceVisibility();
             }
         };
 
@@ -805,6 +889,7 @@ return view.extend({
                     ), 'error');
                 } finally {
                     setProfileBusy(false);
+                    updateSourceVisibility();
                 }
             }
         }, _('Save settings'));
@@ -820,7 +905,105 @@ return view.extend({
                 runProfileAction('sync-start');
             }
         }, _('Apply & guarded start'));
-        profileButtons.push(saveProfileButton, syncProfileButton, startManagedButton);
+        const validateProfileButton = E('button', {
+            'class': 'btn',
+            'click': function() {
+                runProfileAction('validate');
+            }
+        }, _('Validate without switching'));
+        const activateProfileButton = E('button', {
+            'class': 'btn cbi-button-positive',
+            'click': function() {
+                runProfileAction('activate');
+            }
+        }, _('Switch to this profile'));
+        const addProfileButton = E('button', {
+            'class': 'btn',
+            'type': 'button',
+            'click': async function() {
+                const requestedName = window.prompt(_('Name for the new subscription profile:'), _('New profile'));
+                if (requestedName == null) return;
+                const name = requestedName.trim();
+                if (!name || name.length > 64 || /[\u0000-\u001f\u007f]/.test(name)) {
+                    ui.addNotification(null, E('p', _('Profile name must contain 1 through 64 printable characters.')), 'error');
+                    return;
+                }
+                setProfileBusy(true);
+                try {
+                    let id;
+                    do {
+                        id = 'profile_' + Date.now().toString(36) +
+                            Math.random().toString(36).slice(2, 7);
+                    } while (subscriptionProfiles.some(function(profile) {
+                        return profile['.name'] === id;
+                    }));
+                    uci.add('ssclash_profile', 'subscription', id);
+                    uci.set('ssclash_profile', id, 'name', name);
+                    uci.set('ssclash_profile', id, 'enabled', '0');
+                    uci.set('ssclash_profile', id, 'url', '');
+                    uci.set('ssclash_profile', id, 'rules_mode', 'auto');
+                    uci.set('ssclash_profile', id, 'template_id', templateSelect.value || 'russia');
+                    uci.set('ssclash_profile', id, 'interval', '3600');
+                    uci.set('ssclash_profile', id, 'user_agent', 'auto');
+                    uci.set('ssclash_profile', id, 'device_os', 'OpenWrt');
+                    await uci.save();
+                    await callUciCommit('ssclash_profile');
+                    subscriptionProfiles = uci.sections('ssclash_profile', 'subscription');
+                    selectedProfileID = id;
+                    renderProfileOptions();
+                    populateSelectedProfile();
+                    updateSourceVisibility();
+                    ui.addNotification(null, E('p', _('The new profile was saved. Add its subscription URL, then validate or switch to it.')), 'info');
+                } catch (error) {
+                    ui.addNotification(null, E('p', _('Unable to add subscription profile: %s').format(error.message)), 'error');
+                } finally {
+                    setProfileBusy(false);
+                    updateSourceVisibility();
+                }
+            }
+        }, _('Add profile'));
+        const deleteProfileButton = E('button', {
+            'class': 'btn cbi-button-negative',
+            'type': 'button',
+            'click': async function() {
+                if (selectedProfileID === activeProfileID) {
+                    ui.addNotification(null, E('p', _('Switch to another profile before deleting the active profile.')), 'warning');
+                    return;
+                }
+                if (!window.confirm(_('Delete the selected subscription profile and its protected cached candidate?'))) return;
+                setProfileBusy(true);
+                try {
+                    const result = await fs.exec(PROFILE_HELPER, [ 'delete', selectedProfileID ]);
+                    if (result.code !== 0) {
+                        const status = parseProfileStatus(result.stdout);
+                        throw new Error(status.message || _('Profile deletion failed.'));
+                    }
+                    window.location.reload();
+                } catch (error) {
+                    ui.addNotification(null, E('p', _('Unable to delete subscription profile: %s').format(error.message)), 'error');
+                    setProfileBusy(false);
+                }
+            }
+        }, _('Delete profile'));
+        profileButtons.push(
+            saveProfileButton, syncProfileButton, startManagedButton,
+            validateProfileButton, activateProfileButton,
+            addProfileButton, deleteProfileButton
+        );
+
+        const profileManagementSection = E('div', {
+            'style': 'display: grid; grid-template-columns: minmax(150px, 210px) minmax(260px, 1fr); gap: 10px 14px; align-items: center; margin-bottom: 14px;'
+        }, [
+            E('label', {}, _('Saved subscription')),
+            profileSelect,
+            E('label', {}, _('Profile name')),
+            profileNameInput,
+            E('span', {}),
+            E('div', { 'style': 'display: flex; flex-wrap: wrap; gap: 8px;' }, [
+                addProfileButton,
+                deleteProfileButton
+            ])
+        ]);
 
         const subscriptionSection = E('div', {
             'style': 'display: grid; grid-template-columns: minmax(150px, 210px) minmax(260px, 1fr); gap: 10px 14px; align-items: center;'
@@ -876,6 +1059,38 @@ return view.extend({
             linksTemplateSelect.value = templateSelect.value;
         });
 
+        const populateSelectedProfile = function() {
+            const profile = selectedProfile();
+            if (!profile) return;
+            profileNameInput.value = profile.name || profile['.name'];
+            subscriptionInput.value = profile.url || '';
+            intervalInput.value = profile.interval || '3600';
+            autoUpdateInput.checked = profile.enabled === '1';
+            rulesModeSelect.value = profile.rules_mode === 'template' ? 'template' : 'auto';
+            const wantedTemplate = profile.template_id || 'russia';
+            templateSelect.value = templates.some(function(item) {
+                return item.id === wantedTemplate;
+            }) ? wantedTemplate : templates[0].id;
+            linksTemplateSelect.value = templateSelect.value;
+            userAgentInput.value = profile.user_agent || 'auto';
+            hwidInput.value = profile.hwid || '';
+            hwidInput.dataset.originalValue = profile.hwid || '';
+        };
+
+        profileSelect.addEventListener('change', function() {
+            selectedProfileID = profileSelect.value;
+            populateSelectedProfile();
+            renderProfileStatus(profileStatus);
+            updateSourceVisibility();
+        });
+        populateSelectedProfile();
+        if (configuredSourceMode === 'links') {
+            templateSelect.value = templates.some(function(item) {
+                return item.id === mainTemplateID;
+            }) ? mainTemplateID : templates[0].id;
+            linksTemplateSelect.value = templateSelect.value;
+        }
+
         const manualSection = E('div', { 'style': 'display: none;' }, [
             E('p', { 'class': 'cbi-section-descr' }, _(
                 'The YAML editor below is authoritative in this mode. Subscription scheduling is stopped, and PARTY will not regenerate the file.'
@@ -900,7 +1115,13 @@ return view.extend({
 
         const managedButtonRow = E('div', {
             'style': 'display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;'
-        }, [ saveProfileButton, syncProfileButton, startManagedButton ]);
+        }, [
+            saveProfileButton,
+            syncProfileButton,
+            startManagedButton,
+            validateProfileButton,
+            activateProfileButton
+        ]);
 
         const managedProfileCard = E('div', {
             'id': 'ssclash-managed-profile',
@@ -917,6 +1138,7 @@ return view.extend({
                 E('label', {}, _('Source type')),
                 sourceModeSelect
             ]),
+            profileManagementSection,
             subscriptionSection,
             linksSection,
             manualSection,
@@ -932,12 +1154,18 @@ return view.extend({
 
         const updateSourceVisibility = function() {
             const mode = sourceModeSelect.value;
+            const subscriptionMode = mode === 'subscription';
+            const selectedIsActive = selectedProfileID === activeProfileID;
+            profileManagementSection.style.display = subscriptionMode ? 'grid' : 'none';
             subscriptionSection.style.display = mode === 'subscription' ? 'grid' : 'none';
             linksSection.style.display = mode === 'links' ? 'block' : 'none';
             manualSection.style.display = mode === 'manual' ? 'block' : 'none';
             advancedSection.style.display = mode === 'subscription' ? 'block' : 'none';
-            syncProfileButton.style.display = mode === 'manual' ? 'none' : '';
-            startManagedButton.style.display = mode === 'manual' ? 'none' : '';
+            syncProfileButton.style.display = mode === 'links' || (subscriptionMode && selectedIsActive) ? '' : 'none';
+            startManagedButton.style.display = mode === 'links' || (subscriptionMode && selectedIsActive) ? '' : 'none';
+            validateProfileButton.style.display = subscriptionMode ? '' : 'none';
+            activateProfileButton.style.display = subscriptionMode && !selectedIsActive ? '' : 'none';
+            deleteProfileButton.disabled = selectedIsActive || subscriptionProfiles.length <= 1;
             syncProfileButton.textContent = mode === 'links' ? _('Generate & apply') : _('Sync now');
             startManagedButton.textContent = mode === 'links'
                 ? _('Generate & guarded start') : _('Sync & guarded start');
@@ -949,7 +1177,17 @@ return view.extend({
                     : _('Read-only preview of the currently active generated Mihomo configuration.');
             }
         };
-        sourceModeSelect.addEventListener('change', updateSourceVisibility);
+        sourceModeSelect.addEventListener('change', function() {
+            if (sourceModeSelect.value === 'subscription') {
+                populateSelectedProfile();
+            } else if (sourceModeSelect.value === 'links') {
+                templateSelect.value = templates.some(function(item) {
+                    return item.id === mainTemplateID;
+                }) ? mainTemplateID : templates[0].id;
+                linksTemplateSelect.value = templateSelect.value;
+            }
+            updateSourceVisibility();
+        });
         updateSourceVisibility();
 
         const writeAndTestConfig = async function() {

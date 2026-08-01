@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SSClash PARTY</title>
+  <script src="/ssclash-party-host.js"></script>
+  <script>
+    (function () {
+      var host = String(window.location.hostname || '').toLowerCase().replace(/\.$/, '');
+      var panelHost = String(window.SSCLASH_PARTY_PANEL_HOST || 'panel.router').toLowerCase();
+      var target = host === panelHost
+        ? '/cgi-bin/luci/admin/services/ssclash/dashboard'
+        : '/cgi-bin/luci/';
+      window.location.replace(target);
+    }());
+  </script>
+  <noscript><meta http-equiv="refresh" content="0;url=/cgi-bin/luci/"></noscript>
+</head>
+<body>
+  <p><a href="/cgi-bin/luci/">Open OpenWrt</a></p>
+</body>
+</html>
