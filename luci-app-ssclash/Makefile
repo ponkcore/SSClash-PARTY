@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -188,7 +188,7 @@ fi
 if [ -f /usr/share/ssclash-party/VERSION ]; then
 	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
 	case "$$detected_version" in
-		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5)
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5|4.7.0-party.6)
 			PREVIOUS_PARTY_VERSION="$$detected_version"
 			;;
 	esac

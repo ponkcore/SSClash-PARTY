@@ -157,6 +157,19 @@ running profile uses hot reload or guarded restart and updates the active
 profile pointer only after success. This revision does not aggregate multiple
 subscriptions.
 
+The LuCI navigation cleanup revision is:
+
+```text
+Git tag:         v4.7.0-party.6
+OpenWrt package: luci-app-ssclash 4.7.0-r8
+```
+
+It keeps the authenticated dashboard handoff as an internal route while
+removing its duplicate navigation tab. Router Integration is embedded at the
+top of Settings, and the former router URL remains a hidden compatibility
+alias. The configuration model, guarded activation, and dashboard controller
+authentication are unchanged.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;
