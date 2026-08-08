@@ -19,16 +19,14 @@
 		}
 	},
 	"admin/services/ssclash/router": {
-		"title": "Router Integration",
-		"order": 15,
+		"firstchild_ineligible": true,
 		"action": {
-			"type": "view",
-			"path": "ssclash/router"
+			"type": "alias",
+			"path": "admin/services/ssclash/settings"
 		}
 	},
 	"admin/services/ssclash/dashboard": {
-		"title": "Dashboard",
-		"order": 5,
+		"firstchild_ineligible": true,
 		"action": {
 			"type": "view",
 			"path": "ssclash/dashboard"

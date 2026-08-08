@@ -166,8 +166,8 @@ disabled IPv6, and confined provider caches.
 
 ## Router Integration
 
-Open **Services → SSClash → Router Integration** to edit settings that must be
-stable across every managed subscription and template:
+Open **Services → SSClash → Settings → Router Integration** to edit settings
+that must be stable across every managed subscription and template:
 
 - redir-host or fake-IP DNS mode and loopback listener;
 - fake-IP range, blacklist/whitelist behavior, compatibility filters, and

@@ -140,8 +140,8 @@ stopped and disabled so that direct routing can recover.
 
 ## Router Integration and DNS modes
 
-Open **Services → SSClash → Router Integration** for the protected runtime
-overlay. Its DNS selector exposes:
+Open **Services → SSClash → Settings → Router Integration** for the protected
+runtime overlay. Its DNS selector exposes:
 
 - `redir-host` — explicitly force normal address responses;
 - `fake-ip` — generate a locally controlled fake-IP baseline.
@@ -168,7 +168,8 @@ migration, but it is not offered as a new UI selection.
 **Open Dashboard** reads the private controller address and secret from the
 active configuration and opens the packaged dashboard setup route. Connection
 parameters are placed after the URL fragment marker (`#`), so the browser does
-not send the secret in the HTTP request path.
+not send the secret in the HTTP request path. The authenticated route remains
+internal and is not shown as a duplicate LuCI navigation tab.
 
 The recommended `http://ROUTER_IP/party/` entry needs no DNS. An
 unauthenticated request opens the standard LuCI login; after successful

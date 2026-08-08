@@ -4,8 +4,10 @@ Router Integration is the PARTY-owned OpenWrt runtime layer. It is shared by
 every managed Subscription and Proxy-links configuration and cannot be
 overridden by a provider profile or routing template.
 
-Open **Services → SSClash → Router Integration** to edit it. Manual YAML does
-not use this layer because the complete YAML is authoritative in that mode.
+Open **Services → SSClash → Settings** and use its **Router Integration**
+section to edit it. Manual YAML does not use this layer because the complete
+YAML is authoritative in that mode. Router Integration is intentionally not a
+separate navigation tab because it is part of the global service settings.
 
 ## DNS selection
 
@@ -106,6 +108,10 @@ The authenticated route reads the controller address and token from the
 active mode-`0600` YAML. It places the connection parameters after the URL
 fragment marker (`#`). Fragments are handled in the browser and are not sent
 as part of the HTTP request to uHTTPd.
+
+That authenticated route is an internal handoff and has no separate LuCI
+navigation tab. Users open it through **Open Dashboard** on Configuration or
+through `/party/`, avoiding two controls that perform the same action.
 
 The direct controller URL, such as `http://ROUTER_IP:9090/`, remains the
 Mihomo API and correctly returns HTTP 401 without a bearer token. PARTY does

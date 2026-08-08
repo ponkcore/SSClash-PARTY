@@ -1,5 +1,5 @@
 'use strict';
-'require view';
+'require baseclass';
 'require fs';
 'require rpc';
 'require uci';
@@ -62,7 +62,7 @@ function select(value, choices) {
     return element;
 }
 
-return view.extend({
+return baseclass.extend({
     load: function() {
         view_ssclash_utils.bumpRpcTimeout();
         try {
@@ -309,7 +309,7 @@ return view.extend({
         const page = E('div', {}, [
             E('h2', {}, _('Router Integration')),
             E('p', { 'class': 'cbi-section-descr' }, _(
-                'These settings belong to the router, not to a subscription. Every managed subscription or proxy-link profile receives the same protected overlay.'
+                'These settings belong to the router, not to a subscription. Every managed subscription or proxy-link profile receives the same protected overlay. Manual YAML remains authoritative for its own runtime settings.'
             )),
             fieldRow(_('DNS mode'), dnsMode, _('Subscriptions cannot change this selection. Redir-host keeps real DNS answers; Fake-IP enables the compatibility wizard below.')),
             fieldRow(_('DNS listener'), dnsListen, _('Upstream resolvers still come from the active policy or PARTY template.')),
@@ -319,9 +319,5 @@ return view.extend({
         ]);
         window.setTimeout(updateVisibility, 0);
         return page;
-    },
-
-    handleSave: null,
-    handleSaveApply: null,
-    handleReset: null
+    }
 });

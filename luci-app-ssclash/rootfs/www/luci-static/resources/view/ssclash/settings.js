@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require network';
+'require view.ssclash.router';
 'require view.ssclash.utils';
 
 view_ssclash_utils.bumpRpcTimeout();
@@ -1130,12 +1131,13 @@ return view.extend({
     load: function() {
         return Promise.all([
             getNetworkInterfaces(),
-            loadSettings()
+            loadSettings(),
+            view_ssclash_router.load()
         ]);
     },
 
     render: async function(data) {
-        const [interfaces, settings] = data;
+        const [interfaces, settings, routerData] = data;
 
         if (!view_ssclash_utils.isLightTheme()) {
             PANEL_TEXT = 'inherit';
@@ -1515,17 +1517,20 @@ return view.extend({
             updateCurrentStatus(settings.mode, settings.autoDetectLan, settings.autoDetectWan, selectedInterfaces, detectedLanBridge, detectedWanInterface);
         }, 100);
 
-        const ownershipNotice = E('div', {
-            'class': 'alert-message warning',
-            'style': 'margin-bottom: 16px;'
+        const routerIntegration = view_ssclash_router.render(routerData);
+        const serviceSettingsHeading = E('div', {
+            'class': 'cbi-section',
+            'style': 'margin-top: 28px; padding-top: 18px; border-top: 1px solid ' + PANEL_BORDER + ';'
         }, [
-            E('strong', {}, _('For managed Subscription and Proxy links sources, router-level proxy, DNS, Fake-IP, TUN and controller options moved to Router Integration. ')),
-            E('a', { 'href': L.url('admin/services/ssclash/router') }, _('Open Router Integration')),
-            E('span', {}, _('. Manual YAML remains authoritative for its own transport settings. Subscription headers and HWID behavior belong to each saved subscription on the Configuration page.'))
+            E('h2', {}, _('Interface and service settings')),
+            E('p', { 'class': 'cbi-section-descr' }, _(
+                'Configure traffic-facing interfaces, local service behavior, and Mihomo kernel management. Subscription headers and HWID behavior remain on the Configuration page.'
+            ))
         ]);
 
         const view = E([
-            ownershipNotice,
+            routerIntegration,
+            serviceSettingsHeading,
             modeSelector,
             autoDetectOptions,
             interfaceSelector,

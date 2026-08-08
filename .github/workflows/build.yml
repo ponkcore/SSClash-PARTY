@@ -210,6 +210,7 @@ jobs:
           tests/profile-sync/test-profile-sync.sh
           tests/router-integration/test-router-integration.sh
           tests/migration/test-migration.sh
+          node tests/luci-navigation.mjs
           for javascript in \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/dashboard.js \

@@ -129,11 +129,11 @@ the previous profile.
 The scheduled updater runs only in Subscription mode. It never starts a Clash
 service that the operator deliberately stopped.
 
-Router-owned settings are edited separately under **Services → SSClash →
-Router Integration**. Changing redir-host/fake-IP, TPROXY/TUN, listener, mark,
-or controller settings creates a staged candidate, runs compatibility checks,
-validates it with Mihomo, and uses the same guarded activation and rollback
-path.
+Router-owned settings are edited in **Services → SSClash → Settings**, in the
+**Router Integration** section. Changing redir-host/fake-IP, TPROXY/TUN,
+listener, mark, or controller settings creates a staged candidate, runs
+compatibility checks, validates it with Mihomo, and uses the same guarded
+activation and rollback path.
 
 ## What PARTY includes
 
@@ -259,10 +259,10 @@ Open **Services → SSClash → Configuration**:
 
 Saving source settings alone never replaces the active profile.
 
-Open **Services → SSClash → Router Integration** to select redir-host or
-fake-IP and, when needed, adjust advanced transport and controller values.
-Use the compatibility-and-apply action; do not edit generated YAML for these
-managed settings.
+Open **Services → SSClash → Settings → Router Integration** to select
+redir-host or fake-IP and, when needed, adjust advanced transport and
+controller values. Use the compatibility-and-apply action; do not edit
+generated YAML for these managed settings.
 
 Browse to `http://ROUTER_IP/party/` from a LAN client. For example, the path is
 `http://192.168.10.1/party/` when that is the router's LAN address. A browser
@@ -334,8 +334,8 @@ single proxy pool.
 ### Can a subscription switch my LAN to fake-IP?
 
 No. A remote profile cannot silently change the protected DNS model. Enable
-fake-IP deliberately under **Router Integration**; PARTY checks and corrects
-the local compatibility baseline before guarded activation.
+fake-IP deliberately under **Settings → Router Integration**; PARTY checks and
+corrects the local compatibility baseline before guarded activation.
 
 ### Is PARTY limited to Cudy routers?
 
