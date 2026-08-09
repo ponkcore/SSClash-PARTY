@@ -34,18 +34,25 @@
 	},
 	"admin/services/ssclash/settings": {
 		"title": "Settings",
-		"order": 20,
+		"order": 30,
 		"action": {
 			"type": "view",
 			"path": "ssclash/settings"
 		}
 	},
-	"admin/services/ssclash/rulesets": {
-		"title": "Rulesets",
-		"order": 30,
+	"admin/services/ssclash/templates": {
+		"title": "Templates",
+		"order": 20,
 		"action": {
 			"type": "view",
-			"path": "ssclash/rulesets"
+			"path": "ssclash/templates"
+		}
+	},
+	"admin/services/ssclash/rulesets": {
+		"firstchild_ineligible": true,
+		"action": {
+			"type": "alias",
+			"path": "admin/services/ssclash/templates"
 		}
 	},
 	"admin/services/ssclash/log": {

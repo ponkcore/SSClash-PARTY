@@ -41,8 +41,6 @@ dns:
   direct-nameserver:
     - https://77.88.8.8/dns-query
     - https://8.8.8.8/dns-query
-  enable: true
-  ipv6: false
   nameserver:
     - https://8.8.8.8/dns-query#PROXY
   proxy-server-nameserver:

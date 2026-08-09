@@ -7,6 +7,8 @@
 'require view.ssclash.utils';
 
 const ROUTER_HELPER = '/usr/libexec/ssclash-router-integration';
+const FAKEIP_WHITELIST = '/opt/clash/lst/fakeip-whitelist-ipcidr.txt';
+const RULES_HELPER = '/opt/clash/bin/clash-rules';
 
 const callUciCommit = rpc.declare({
     object: 'uci',
@@ -70,10 +72,13 @@ return baseclass.extend({
                 L.env.rpctimeout = 120;
             }
         } catch (_error) {}
-        return uci.load('ssclash_profile');
+        return Promise.all([
+            uci.load('ssclash_profile'),
+            L.resolveDefault(fs.read(FAKEIP_WHITELIST), '')
+        ]);
     },
 
-    render: function() {
+    render: function(data) {
         const get = function(option, fallback) {
             const value = uci.get('ssclash_profile', 'router', option);
             return value == null || value === '' ? fallback : value;
@@ -101,6 +106,56 @@ return baseclass.extend({
             'style': 'width: 100%; max-width: 620px; font-family: monospace;'
         }, Array.isArray(storedFilters) ? storedFilters.join('\n') : String(storedFilters).split(/\s+/).join('\n'));
         const storeFakeIP = input('checkbox', get('store_fake_ip', '1') === '1');
+        const fakeIPCIDRList = E('textarea', {
+            'class': 'cbi-input-textarea',
+            'rows': '9',
+            'spellcheck': 'false',
+            'style': 'width: 100%; max-width: 620px; font-family: monospace;',
+            'placeholder': '8.8.8.8\n1.2.3.0/24'
+        }, String(Array.isArray(data) ? (data[1] || '') : ''));
+
+        const runWhitelistUpdate = async function(regenerate, button) {
+            button.disabled = true;
+            try {
+                if (!regenerate) {
+                    const content = fakeIPCIDRList.value.trim();
+                    await fs.write(FAKEIP_WHITELIST, content ? content + '\n' : '');
+                }
+                const result = await fs.exec(RULES_HELPER, [ 'update-ip-whitelist' ]);
+                if (result.code !== 0) {
+                    throw new Error(String(result.stderr || result.stdout || _('unknown error')).trim());
+                }
+                fakeIPCIDRList.value = await L.resolveDefault(fs.read(FAKEIP_WHITELIST), fakeIPCIDRList.value);
+                ui.addNotification(null, E('p', regenerate
+                    ? _('The technical IP-CIDR whitelist was regenerated from active rule providers.')
+                    : _('The technical IP-CIDR whitelist was saved and firewall rules were refreshed.')), 'info');
+            } catch (error) {
+                ui.addNotification(null, E('p', _(
+                    'Unable to update the technical Fake-IP whitelist: %s'
+                ).format(error.message)), 'error');
+            } finally {
+                button.disabled = false;
+            }
+        };
+
+        const whitelistSave = E('button', {
+            'class': 'btn', 'type': 'button',
+            'click': function() { runWhitelistUpdate(false, whitelistSave); }
+        }, _('Save IP-CIDR list'));
+        const whitelistRegenerate = E('button', {
+            'class': 'btn', 'type': 'button', 'style': 'margin-left: 8px;',
+            'click': function() { runWhitelistUpdate(true, whitelistRegenerate); }
+        }, _('Regenerate now'));
+        const whitelistSettings = E('div', {
+            'style': 'margin-top: 14px; padding: 12px; border-left: 4px solid #0066cc; background: rgba(0,102,204,.08);'
+        }, [
+            E('strong', {}, _('Technical IP-CIDR whitelist')),
+            E('p', { 'class': 'cbi-section-descr' }, _(
+                'This is a Router Integration firewall list, not a routing template. In Fake-IP whitelist mode it marks real-IP destinations that still require proxying. The AUTO block is regenerated from non-DIRECT active rule providers; edit only outside its markers.'
+            )),
+            fakeIPCIDRList,
+            E('div', { 'style': 'margin-top: 8px;' }, [ whitelistSave, whitelistRegenerate ])
+        ]);
 
         const fakeSettings = E('div', {
             'style': 'margin: 12px 0; padding: 12px 14px; border: 1px solid rgba(127,127,127,.25); border-radius: 5px;'
@@ -114,7 +169,8 @@ return baseclass.extend({
             fieldRow(_('Compatibility filters'), fakeFilters, _('One domain pattern per line. *.lan, *.local, and the PARTY panel hostname are mandatory safety exclusions.')),
             fieldRow(_('Persist mappings'), E('label', {
                 'style': 'display: inline-flex; gap: 8px; align-items: center;'
-            }, [ storeFakeIP, E('span', {}, _('Keep fake-IP mappings across restarts')) ]))
+            }, [ storeFakeIP, E('span', {}, _('Keep fake-IP mappings across restarts')) ])),
+            whitelistSettings
         ]);
 
         const proxyMode = select(get('proxy_mode', 'tproxy'), [
@@ -153,6 +209,8 @@ return baseclass.extend({
 
         const updateVisibility = function() {
             fakeSettings.style.display = dnsMode.value === 'fake-ip' ? 'block' : 'none';
+            whitelistSettings.style.display = dnsMode.value === 'fake-ip' && fakeFilterMode.value === 'whitelist'
+                ? 'block' : 'none';
             const tunVisible = proxyMode.value === 'tun' || proxyMode.value === 'mixed';
             tunStack.closest('div[style*="grid-template-columns"]').style.display = tunVisible ? 'grid' : 'none';
             controllerHost.closest('div[style*="grid-template-columns"]').style.display =
@@ -160,6 +218,7 @@ return baseclass.extend({
             panelHostname.disabled = !panelEnabled.checked;
         };
         dnsMode.addEventListener('change', updateVisibility);
+        fakeFilterMode.addEventListener('change', updateVisibility);
         proxyMode.addEventListener('change', updateVisibility);
         controllerMode.addEventListener('change', updateVisibility);
         panelEnabled.addEventListener('change', updateVisibility);

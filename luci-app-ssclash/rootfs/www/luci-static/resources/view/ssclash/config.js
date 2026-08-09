@@ -14,7 +14,7 @@ const PROFILE_HELPER = '/usr/libexec/ssclash-profile-sync';
 const PROFILE_INIT = '/etc/init.d/ssclash-profile-sync';
 const PROFILE_STATUS_FILE = '/tmp/ssclash-profile-sync/status.json';
 const LINKS_FILE = '/etc/ssclash-party/links.txt';
-const TEMPLATE_CATALOG_FILE = '/usr/share/ssclash-party/templates/catalog.json';
+const TEMPLATE_HELPER = '/usr/libexec/ssclash-template-manager';
 const SSCLASH_MANAGED_PROFILE_UI = '2.0.0';
 const LINKS_INLINE_WRITE_MAX = 24576;
 const LINKS_BASE64_CHUNK_SIZE = 24000;
@@ -218,7 +218,7 @@ async function initializeAceEditor(content, readOnly) {
 // =============================================================================
 
 // Keep in sync with the PARTY release tag.
-const SSCLASH_VERSION = '4.7.0-party.6';
+const SSCLASH_VERSION = '4.7.0-party.7';
 
 const SSCLASH_REPO = 'ponkcore/SSClash-PARTY';
 const SSCLASH_RELEASES_URL = 'https://github.com/' + SSCLASH_REPO + '/releases';
@@ -267,7 +267,7 @@ return view.extend({
             L.resolveDefault(uci.load('ssclash_profile'), null),
             L.resolveDefault(fs.read(PROFILE_STATUS_FILE), ''),
             L.resolveDefault(fs.read(LINKS_FILE), ''),
-            L.resolveDefault(fs.read(TEMPLATE_CATALOG_FILE), '')
+            L.resolveDefault(fs.exec(TEMPLATE_HELPER, [ 'list' ]), { stdout: '' })
         ]);
     },
     render: async function(data) {
@@ -316,7 +316,7 @@ return view.extend({
 
         let templates = [];
         try {
-            const catalog = JSON.parse(String(data[4] || ''));
+            const catalog = JSON.parse(String((data[4] && data[4].stdout) || ''));
             if (catalog && Array.isArray(catalog.templates)) {
                 templates = catalog.templates.filter(function(item) {
                     return item && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(item.id || '');

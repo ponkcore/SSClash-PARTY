@@ -251,7 +251,9 @@ func templateDocument(path, templateID string) (map[string]any, error) {
 	if !templateIDPattern.MatchString(templateID) {
 		return nil, errors.New("template ID is invalid")
 	}
-	if filepath.Base(path) != templateID+".yaml" {
+	builtinLayout := filepath.Base(path) == templateID+".yaml"
+	customLayout := filepath.Base(path) == "template.yaml" && filepath.Base(filepath.Dir(path)) == templateID
+	if !builtinLayout && !customLayout {
 		return nil, errors.New("template filename does not match its ID")
 	}
 	document, _, err := readYAML(path)

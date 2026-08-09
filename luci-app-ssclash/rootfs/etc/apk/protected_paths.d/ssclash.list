@@ -9,4 +9,6 @@
 +opt/clash/profile-cache/*
 +etc/config/ssclash_profile
 +etc/ssclash-party/links.txt
++etc/ssclash-party/templates
++etc/ssclash-party/templates/*
 +etc/ssclash-party/panel.state

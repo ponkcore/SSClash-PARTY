@@ -29,6 +29,7 @@ create_case() {
     mkdir -p \
         "$case_root/clash" \
         "$case_root/config" \
+        "$case_root/custom-templates" \
         "$case_root/links" \
         "$case_root/state"
     cp "$fixture_dir/current.yaml" "$case_root/clash/config.yaml"
@@ -90,6 +91,7 @@ run_action() {
     SSCLASH_PROFILE_CACHE_DIR="$case_root/clash/profile-cache" \
     SSCLASH_LINKS_DIR="$case_root/links" \
     SSCLASH_TEMPLATE_DIR="$template_dir" \
+    SSCLASH_CUSTOM_TEMPLATE_DIR="$case_root/custom-templates" \
     SSCLASH_VERSION_FILE="$version_file" \
     SSCLASH_STATE_DIR="$case_root/state" \
     SSCLASH_LOCK_DIR="$case_root/sync.lock" \
@@ -179,6 +181,26 @@ assert_json "$links_case/state/status.json" '.state == "success"'
 assert_json "$links_case/state/status.json" '.summary.source_format == "links"'
 assert_json "$links_case/state/status.json" '.summary.rules_source == "template"'
 assert_json "$links_case/state/status.json" '.summary.skipped_lines == 1'
+
+custom_template_case="$(create_case custom-template subscription template)"
+mkdir -p "$custom_template_case/custom-templates/custom"
+cat > "$custom_template_case/custom-templates/custom/template.yaml" <<'EOF'
+proxy-groups:
+  - name: CUSTOM-POLICY
+    type: select
+    include-all: true
+rules:
+  - MATCH,CUSTOM-POLICY
+EOF
+printf '%s\n' '{"id":"custom","name":"Custom","description":"Test","revision":1}' > \
+    "$custom_template_case/custom-templates/custom/metadata.json"
+sed -i \
+    -e 's/^ssclash_profile\.main\.template_id=.*/ssclash_profile.main.template_id=custom/' \
+    -e 's/^ssclash_profile\.default\.template_id=.*/ssclash_profile.default.template_id=custom/' \
+    "$custom_template_case/config/ssclash_profile"
+run_sync "$custom_template_case" full
+assert_json "$custom_template_case/state/status.json" '.state == "success" and .summary.template_id == "custom"'
+grep -q 'name: CUSTOM-POLICY' "$custom_template_case/clash/config.yaml"
 
 invalid_case="$(create_case invalid subscription auto)"
 before_hash="$(sha256sum "$invalid_case/clash/config.yaml" | awk '{print $1}')"

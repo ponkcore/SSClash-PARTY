@@ -111,6 +111,26 @@ Use the built-in YAML editor when you want the original fully manual workflow.
 The editor is authoritative in this mode; PARTY does not regenerate the file
 or schedule subscription updates.
 
+### Template Studio
+
+Open **Services → SSClash → Templates** to manage reusable routing policy
+without mixing it with proxy credentials or router listeners. The built-in
+**Russia v2** policy is read-only and can be cloned. Custom templates can be
+created from complete YAML or edited visually as proxy groups, HTTPS/inline
+rule providers, and ordered rules.
+
+Before every save, PARTY converts the input to canonical YAML and reports each
+field it removed or adjusted. Proxy nodes, proxy-provider credentials,
+controller/TUN/TPROXY/listener settings, fake-IP mode, arbitrary cache paths,
+and non-portable file providers cannot enter the template store. The installed
+Mihomo core then validates the result before an atomic revision is published.
+Previous revisions remain available for restore, and deletion moves custom
+templates to protected recovery storage.
+
+Files retained from the former Rulesets page are shown as unattached legacy
+lists. The visual editor can copy one into a native Mihomo `inline` rule
+provider; it does not delete the original or invent a routing target.
+
 ## Safe by construction
 
 Every managed apply follows the same transaction:
@@ -142,11 +162,12 @@ activation and rollback path.
 | Adaptive source discovery | Complete YAML, nodes-only YAML, plaintext URIs, and Base64 URI lists can use the same subscription field |
 | Optional provider policy | Preserve provider-managed groups and rules, or force a trusted PARTY template |
 | Saved subscription profiles | Store, validate, rename, and transactionally switch named subscriptions without exposing their URLs |
+| Template Studio | Create, clone, sanitize, visually edit, validate, version, restore, and select portable routing policies |
 | Guarded activation | Mihomo validation, atomic replacement, post-apply health checks, and rollback |
 | Router Integration | Deliberate redir-host/fake-IP selection, compatibility filters, TPROXY/TUN controls, routing-loop prevention, and controller settings stay protected from subscriptions |
 | Remnawave compatibility | Client negotiation and optional stable HWID headers without creating new identities on device-limit errors |
 | DNS-independent panel entry | `http://ROUTER_IP/party/` uses the ordinary LuCI login and then opens packaged Zashboard without a port, local DNS, or a controller token in the HTTP request path |
-| LuCI workflow | Source selection, status, logs, local rulesets, service control, Mihomo management, and authenticated Zashboard access |
+| LuCI workflow | Source selection, template management, status, logs, service control, Mihomo management, and authenticated Zashboard access |
 | Template catalog | The built-in **Russia v2** policy adds dedicated video, messaging, social-network, AI, and gaming groups while containing only public rule providers and no proxy credentials or router secrets |
 
 ## Supported packages
@@ -259,6 +280,11 @@ Open **Services → SSClash → Configuration**:
 
 Saving source settings alone never replaces the active profile.
 
+Open **Services → SSClash → Templates** before applying when you want to clone
+Russia v2, import and inspect an existing policy YAML, or build a custom policy
+visually. Selecting a template records the choice; it does not silently force
+an Automatic subscription away from its complete remote policy.
+
 Open **Services → SSClash → Settings → Router Integration** to select
 redir-host or fake-IP and, when needed, adjust advanced transport and
 controller values. Use the compatibility-and-apply action; do not edit
@@ -354,6 +380,7 @@ must therefore match the artifact exactly.
 |---|---|
 | [Safe automatic installer](docs/installer.md) | One-command setup, local device detection, exact matching, manifests, checksums, conflicts, and release contract |
 | [Configuration sources](docs/configuration-sources.md) | Complete user contract for Subscription, Proxy links, Manual YAML, templates, storage, and rollback |
+| [Template Studio](docs/templates.md) | Template CRUD, YAML sanitation, visual policy editing, history, storage, and legacy-list migration |
 | [Router Integration and dashboard entry](docs/router-integration.md) | redir-host/fake-IP, compatibility checks, transparent transport, controller protection, and the DNS-independent `/party/` login flow |
 | [Managed full-profile subscriptions](docs/managed-full-profile.md) | Trust boundary, guarded start, DNS modes, dashboard behavior, UCI settings, and recovery |
 | [PARTY downstream policy](PARTY.md) | Compatibility, branch, release, privacy, and upstream relationship contracts |

@@ -166,6 +166,7 @@ jobs:
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-template-manager
           sh -n luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
           sh -n luci-app-ssclash/rootfs/etc/init.d/clash
           sh -n luci-app-ssclash/rootfs/opt/clash/bin/clash-rules
@@ -176,6 +177,7 @@ jobs:
             luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-template-manager \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
           bash -n scripts/build-installer-manifest.sh
           bash -n scripts/classify-ci-changes.sh
@@ -188,6 +190,7 @@ jobs:
           bash -n tests/router-integration/fake-command
           bash -n tests/router-integration/test-router-integration.sh
           bash -n tests/migration/test-migration.sh
+          bash -n tests/templates/test-template-manager.sh
           shellcheck -s bash \
             scripts/build-installer-manifest.sh \
             scripts/classify-ci-changes.sh \
@@ -199,7 +202,8 @@ jobs:
             tests/profile-sync/test-profile-sync.sh \
             tests/router-integration/fake-command \
             tests/router-integration/test-router-integration.sh \
-            tests/migration/test-migration.sh
+            tests/migration/test-migration.sh \
+            tests/templates/test-template-manager.sh
           (
             cd installer/channels
             sha256sum --check --strict preview.manifest.sha256
@@ -210,12 +214,14 @@ jobs:
           tests/profile-sync/test-profile-sync.sh
           tests/router-integration/test-router-integration.sh
           tests/migration/test-migration.sh
+          tests/templates/test-template-manager.sh
           node tests/luci-navigation.mjs
           for javascript in \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/config.js \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/dashboard.js \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/router.js \
             luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/settings.js \
+            luci-app-ssclash/rootfs/www/luci-static/resources/view/ssclash/templates.js \
             luci-app-ssclash/rootfs/www/ssclash-party-host.js; do
             node --check "$javascript"
           done
@@ -385,6 +391,7 @@ jobs:
           migration="$inspect_root/usr/libexec/ssclash-party-migrate"
           panel_helper="$inspect_root/usr/libexec/ssclash-party-panel"
           router_helper="$inspect_root/usr/libexec/ssclash-router-integration"
+          template_helper="$inspect_root/usr/libexec/ssclash-template-manager"
           profile_config="$inspect_root/etc/config/ssclash_profile"
           links_file="$inspect_root/etc/ssclash-party/links.txt"
           active_config="$inspect_root/opt/clash/config.yaml"
@@ -396,6 +403,7 @@ jobs:
           test -x "$migration"
           test -x "$panel_helper"
           test -x "$router_helper"
+          test -x "$template_helper"
           test -f "$inspect_root/www/ssclash-party-index.html"
           test -f "$inspect_root/www/ssclash-party-host.js"
           test -f "$inspect_root/www/party/index.html"
@@ -403,10 +411,11 @@ jobs:
           test "$(readlink "$inspect_root/www/party-dashboard")" = /opt/clash/ui
           test -f "$inspect_root/www/luci-static/resources/view/ssclash/dashboard.js"
           test -f "$inspect_root/www/luci-static/resources/view/ssclash/router.js"
+          test -f "$inspect_root/www/luci-static/resources/view/ssclash/templates.js"
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.6
+          test "$(cat "$party_version")" = 4.7.0-party.7
           jq -e \
             '.schema_version == 1 and any(.templates[]; .id == "russia")' \
             "$template_catalog" >/dev/null

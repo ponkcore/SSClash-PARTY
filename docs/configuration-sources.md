@@ -146,18 +146,32 @@ succeeds.
 
 ## PARTY templates
 
-The template catalog is installed below:
+Built-in templates are installed below:
 
 ```text
 /usr/share/ssclash-party/templates/
 ```
 
-The first catalog entry is **Russia**. It is derived from the tested router
-policy used during PARTY development and contains no proxy credentials,
-subscription URLs, HWIDs, controller secrets, local listeners, or arbitrary
-file providers. It provides neutral English group names, 26 public rule
-providers, and 31 ordered rules. Country-specific templates can be added to
-the catalog in later releases without changing the source-mode contract.
+Custom templates are stored separately below:
+
+```text
+/etc/ssclash-party/templates/
+```
+
+The first packaged catalog entry is **Russia v2**. It is derived from the
+tested router policy used during PARTY development and contains no proxy
+credentials, subscription URLs, HWIDs, controller secrets, local listeners,
+or arbitrary file providers. It provides 11 English policy groups, 42 public
+HTTPS rule providers, and 45 ordered rules. Dedicated groups cover video,
+messaging, social networks, AI, and games. Country-specific built-ins can be
+added in later releases without changing the source-mode contract.
+
+Open **Services → SSClash → Templates** to view or clone a built-in, import
+complete YAML, create a visual policy, edit a custom template, restore a prior
+revision, or select a template for Configuration. PARTY sanitizes every custom
+save, displays removed and adjusted paths, validates the canonical result with
+the installed Mihomo core, and publishes it atomically. See
+[Template Studio](templates.md) for the exact contract.
 
 Template files do not own router integration. The protected overlay still
 forces the private controller, controller authentication, loopback DNS
@@ -172,6 +186,8 @@ that must be stable across every managed subscription and template:
 - redir-host or fake-IP DNS mode and loopback listener;
 - fake-IP range, blacklist/whitelist behavior, compatibility filters, and
   mapping persistence;
+- the technical Fake-IP IP-CIDR firewall whitelist and its provider-derived
+  AUTO block when whitelist mode is selected;
 - TPROXY, TUN, or mixed transport, TPROXY port, routing mark, and TUN stack;
 - automatic LAN-derived or explicit private controller address, port, and
   secret rotation;
@@ -222,6 +238,7 @@ it, so it does not need an hourly downloader.
 |---|---|---|
 | `/etc/config/ssclash_profile` | Source mode, named subscription profiles, active-profile pointer, router integration, intervals, and optional HWIDs | `0600` |
 | `/etc/ssclash-party/links.txt` | Local proxy URI list | `0600` |
+| `/etc/ssclash-party/templates/` | Custom canonical templates, metadata, bounded revision history, and recoverable deleted snapshots | directory `0700`, files `0600` |
 | `/opt/clash/managed-sources/` | Content-addressed URI source used by Mihomo | directory `0700`, files `0600` |
 | `/opt/clash/config.yaml` | Active last-known-good Mihomo profile | `0600` |
 | `/opt/clash/profile-backups/` | Up to five previous active profiles | directory `0700`, files `0600` |

@@ -18,6 +18,7 @@ PROFILE_CACHE_DIR=${SSCLASH_PROFILE_CACHE_DIR:-$CLASH_HOME/profile-cache}
 LINKS_DIR=${SSCLASH_LINKS_DIR:-/etc/ssclash-party}
 LINKS_FILE=$LINKS_DIR/links.txt
 TEMPLATE_DIR=${SSCLASH_TEMPLATE_DIR:-/usr/share/ssclash-party/templates}
+CUSTOM_TEMPLATE_DIR=${SSCLASH_CUSTOM_TEMPLATE_DIR:-/etc/ssclash-party/templates}
 PARTY_VERSION_FILE=${SSCLASH_VERSION_FILE:-/usr/share/ssclash-party/VERSION}
 STATE_DIR=${SSCLASH_STATE_DIR:-/tmp/ssclash-profile-sync}
 STATUS_FILE="$STATE_DIR/status.json"
@@ -421,17 +422,24 @@ resolve_source_mode() {
 }
 
 source_settings_revision() {
-	local mode links_hash
+	local mode links_hash selected_template template_path template_hash
 	mode="$(resolve_source_mode)"
 	links_hash=absent
 	if [ "$mode" = links ] && [ -f "$LINKS_FILE" ]; then
 		links_hash="$(sha256sum "$LINKS_FILE" 2>/dev/null | awk '{print $1}')"
 	fi
+	selected_template="$(template_value russia)"
+	template_path="$(resolve_template_path "$selected_template" 2>/dev/null || true)"
+	template_hash=unavailable
+	if [ -s "$template_path" ]; then
+		template_hash="$(sha256sum "$template_path" 2>/dev/null | awk '{print $1}')"
+	fi
 	{
 		printf 'source_mode=%s\n' "$mode"
 		printf 'profile_id=%s\n' "$STATUS_PROFILE_ID"
 		printf 'rules_mode=%s\n' "$(rules_value auto)"
-		printf 'template_id=%s\n' "$(template_value russia)"
+		printf 'template_id=%s\n' "$selected_template"
+		printf 'template_sha256=%s\n' "$template_hash"
 		if [ "$mode" = subscription ]; then
 			printf 'url=%s\n' "$(profile_value url)"
 		elif [ "$mode" = links ]; then
@@ -471,8 +479,26 @@ resolve_template() {
 	case "$template_id" in
 		''|*[!a-z0-9_-]*) return 1 ;;
 	esac
-	[ -s "$TEMPLATE_DIR/$template_id.yaml" ] || return 1
+	resolve_template_path "$template_id" >/dev/null || return 1
 	printf '%s\n' "$template_id"
+}
+
+resolve_template_path() {
+	local template_id
+	template_id="${1:-}"
+	case "$template_id" in
+		''|*[!a-z0-9_-]*) return 1 ;;
+	esac
+	if [ -s "$TEMPLATE_DIR/$template_id.yaml" ]; then
+		printf '%s\n' "$TEMPLATE_DIR/$template_id.yaml"
+		return 0
+	fi
+	if [ -s "$CUSTOM_TEMPLATE_DIR/$template_id/template.yaml" ] &&
+		[ -s "$CUSTOM_TEMPLATE_DIR/$template_id/metadata.json" ]; then
+		printf '%s\n' "$CUSTOM_TEMPLATE_DIR/$template_id/template.yaml"
+		return 0
+	fi
+	return 1
 }
 
 resolve_user_agent() {
@@ -1087,7 +1113,11 @@ perform_sync() {
 		print_status
 		return 1
 	}
-	template_path="$TEMPLATE_DIR/$template_id.yaml"
+	template_path="$(resolve_template_path "$template_id")" || {
+		write_status error invalid_template "The selected PARTY routing template is unavailable." null false
+		print_status
+		return 1
+	}
 	source_revision="$(source_settings_revision)" || {
 		write_status error source_state_unavailable "The configuration-source state could not be recorded safely." null false
 		print_status

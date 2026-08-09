@@ -1,0 +1,118 @@
+#!/bin/sh
+
+set -eu
+LC_ALL=C
+export LC_ALL
+umask 077
+
+MERGER=${SSCLASH_TEMPLATE_MERGER:-/usr/bin/ssclash-profile-merge}
+BUILTIN_DIR=${SSCLASH_TEMPLATE_BUILTIN_DIR:-/usr/share/ssclash-party/templates}
+CUSTOM_DIR=${SSCLASH_TEMPLATE_CUSTOM_DIR:-/etc/ssclash-party/templates}
+LEGACY_DIR=${SSCLASH_TEMPLATE_LEGACY_DIR:-/opt/clash/lst}
+MIHOMO=${SSCLASH_TEMPLATE_MIHOMO:-/opt/clash/bin/clash}
+
+fail() {
+	printf '%s\n' "$1" >&2
+	exit 1
+}
+
+valid_id() {
+	local value
+	value="${1:-}"
+	[ -n "$value" ] && [ "${#value}" -le 32 ] || return 1
+	case "$value" in
+		*[!a-z0-9_-]*) return 1 ;;
+	esac
+	case "$value" in
+		[a-z0-9]*) return 0 ;;
+	esac
+	return 1
+}
+
+valid_revision() {
+	case "${1:-}" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	return 0
+}
+
+valid_input() {
+	local path tail
+	path="${1:-}"
+	case "$path" in
+		/tmp/ssclash-party-template.*.yaml) ;;
+		*) return 1 ;;
+	esac
+	tail="${path#/tmp/ssclash-party-template.}"
+	case "$tail" in
+		''|*[!A-Za-z0-9._-]*|*/*) return 1 ;;
+	esac
+	[ -f "$path" ] && [ ! -L "$path" ]
+}
+
+operation=${1:-}
+[ -n "$operation" ] || fail 'Template operation is required.'
+shift
+
+case "$operation" in
+	list)
+		[ "$#" -eq 0 ] || fail 'list accepts no arguments.'
+		exec "$MERGER" template list \
+			--builtin-dir "$BUILTIN_DIR" \
+			--custom-dir "$CUSTOM_DIR" \
+			--legacy-dir "$LEGACY_DIR"
+		;;
+	get)
+		if [ "$#" -ne 1 ] || ! valid_id "$1"; then
+			fail 'A valid template ID is required.'
+		fi
+		exec "$MERGER" template get \
+			--builtin-dir "$BUILTIN_DIR" \
+			--custom-dir "$CUSTOM_DIR" \
+			--id "$1"
+		;;
+	prepare)
+		if [ "$#" -ne 1 ] || ! valid_input "$1"; then
+			fail 'A regular PARTY template input file is required.'
+		fi
+		exec "$MERGER" template prepare --input "$1"
+		;;
+	save)
+		[ "$#" -eq 5 ] || fail 'save requires ID, revision, name, description, and input.'
+		valid_id "$1" || fail 'Template ID is invalid.'
+		valid_revision "$2" || fail 'Template revision is invalid.'
+		valid_input "$5" || fail 'Template input path is invalid.'
+		exec "$MERGER" template save \
+			--builtin-dir "$BUILTIN_DIR" \
+			--custom-dir "$CUSTOM_DIR" \
+			--id "$1" \
+			--expected-revision "$2" \
+			--name "$3" \
+			--description "$4" \
+			--input "$5" \
+			--mihomo "$MIHOMO"
+		;;
+	delete)
+		if [ "$#" -ne 2 ] || ! valid_id "$1" || ! valid_revision "$2"; then
+			fail 'delete requires a valid ID and revision.'
+		fi
+		exec "$MERGER" template delete \
+			--builtin-dir "$BUILTIN_DIR" \
+			--custom-dir "$CUSTOM_DIR" \
+			--id "$1" \
+			--expected-revision "$2"
+		;;
+	restore)
+		if [ "$#" -ne 3 ] || ! valid_id "$1" || ! valid_revision "$2" || ! valid_revision "$3"; then
+			fail 'restore requires a valid ID, history revision, and current revision.'
+		fi
+		exec "$MERGER" template restore \
+			--builtin-dir "$BUILTIN_DIR" \
+			--custom-dir "$CUSTOM_DIR" \
+			--id "$1" \
+			--revision "$2" \
+			--expected-revision "$3" \
+			--mihomo "$MIHOMO"
+		;;
+	*) fail 'Unknown template operation.' ;;
+esac

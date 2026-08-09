@@ -170,6 +170,23 @@ top of Settings, and the former router URL remains a hidden compatibility
 alias. The configuration model, guarded activation, and dashboard controller
 authentication are unchanged.
 
+The template-management revision is:
+
+```text
+Git tag:         v4.7.0-party.7
+OpenWrt package: luci-app-ssclash 4.7.0-r9
+```
+
+It adds a persistent Template Studio with immutable packaged templates,
+revisioned custom templates, recoverable deletion, canonical YAML sanitation,
+Mihomo validation, and a visual editor for groups, HTTPS or inline rule
+providers, and ordered rules. The legacy Rulesets route becomes a hidden alias
+to Templates; retained list files can be copied into portable inline providers.
+The technical Fake-IP IP-CIDR whitelist moves into Router Integration. Russia
+v2 supplies 11 groups, 42 public HTTPS rule providers, and 45 ordered rules.
+Template content is fingerprinted during profile generation so a concurrent
+edit invalidates a stale candidate.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;

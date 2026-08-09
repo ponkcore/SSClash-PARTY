@@ -822,6 +822,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "template":
+			if err := runTemplateCommand(os.Args[2:]); err != nil {
+				fmt.Fprintf(os.Stderr, "ssclash-profile-merge template: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 

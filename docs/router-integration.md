@@ -38,6 +38,13 @@ persistence. It does not invent application-specific IoT exclusions. Add any
 device or service domains that must retain real addresses before migrating a
 production LAN.
 
+When whitelist behavior is selected, the wizard also exposes the technical
+IP-CIDR firewall list. This is not a routing-template list: it marks real-IP
+destinations that still require transparent proxying while Fake-IP is active.
+**Regenerate now** rebuilds the protected AUTO block from non-DIRECT active
+rule providers. Manual entries belong outside the AUTO markers. Saving this
+list refreshes the firewall path without restarting Mihomo.
+
 Changing DNS mode changes a runtime listener signature, so a running service
 uses guarded restart rather than policy-only hot reload. The previous UCI
 settings and active YAML remain available for rollback if generation,

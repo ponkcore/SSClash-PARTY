@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
@@ -112,6 +112,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./rootfs/etc/uci-defaults/99-ssclash-party $(1)/etc/uci-defaults/
 	$(INSTALL_DIR) $(1)/etc/ssclash-party
 	$(INSTALL_CONF) ./rootfs/etc/ssclash-party/links.txt $(1)/etc/ssclash-party/
+	$(INSTALL_DIR) $(1)/etc/ssclash-party/templates
 
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) $(GO_PKG_BUILD_BIN_DIR)/profile-merge $(1)/usr/bin/ssclash-profile-merge
@@ -121,6 +122,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-migrate $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-panel $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-router-integration $(1)/usr/libexec/
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-template-manager $(1)/usr/libexec/
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./rootfs/etc/hotplug.d/iface/40-clash $(1)/etc/hotplug.d/iface/
@@ -188,7 +190,7 @@ fi
 if [ -f /usr/share/ssclash-party/VERSION ]; then
 	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
 	case "$$detected_version" in
-		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5|4.7.0-party.6)
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5|4.7.0-party.6|4.7.0-party.7)
 			PREVIOUS_PARTY_VERSION="$$detected_version"
 			;;
 	esac
@@ -226,8 +228,8 @@ fi
 	rm -f /tmp/luci-*
 	chmod 600 /etc/config/ssclash_profile 2>/dev/null || true
 	chmod 600 /opt/clash/config.yaml 2>/dev/null || true
-	mkdir -p /etc/ssclash-party /opt/clash/managed-sources /opt/clash/profile-cache
-	chmod 700 /etc/ssclash-party /opt/clash/managed-sources /opt/clash/profile-cache 2>/dev/null || true
+	mkdir -p /etc/ssclash-party /etc/ssclash-party/templates /opt/clash/managed-sources /opt/clash/profile-cache
+	chmod 700 /etc/ssclash-party /etc/ssclash-party/templates /opt/clash/managed-sources /opt/clash/profile-cache 2>/dev/null || true
 	[ -f /etc/ssclash-party/links.txt ] || : > /etc/ssclash-party/links.txt
 	chmod 600 /etc/ssclash-party/links.txt 2>/dev/null || true
 
