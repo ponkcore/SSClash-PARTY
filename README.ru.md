@@ -151,7 +151,7 @@ Mihomo и защищённое применение с откатом.
 ## Поддерживаемые пакеты
 
 Текущая публичная предварительная версия
-[`v4.7.0-party.7`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.7)
+[`v4.7.0-party.8`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.8)
 содержит следующие архитектурно-зависимые пакеты:
 
 | Версия OpenWrt | Target | Пакетная архитектура | Формат | Уровень проверки |
