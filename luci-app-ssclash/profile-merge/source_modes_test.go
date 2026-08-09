@@ -106,13 +106,13 @@ func TestRussiaTemplateIsCredentialFreeAndComplete(t *testing.T) {
 	if err := validateTemplate(document); err != nil {
 		t.Fatalf("validate Russia template: %v", err)
 	}
-	if len(asSlice(document["proxy-groups"])) != 9 {
+	if len(asSlice(document["proxy-groups"])) != 11 {
 		t.Fatalf("unexpected proxy-group count: %d", len(asSlice(document["proxy-groups"])))
 	}
-	if len(asMap(document["rule-providers"])) != 26 {
+	if len(asMap(document["rule-providers"])) != 42 {
 		t.Fatalf("unexpected rule-provider count: %d", len(asMap(document["rule-providers"])))
 	}
-	if len(asSlice(document["rules"])) != 31 {
+	if len(asSlice(document["rules"])) != 45 {
 		t.Fatalf("unexpected rule count: %d", len(asSlice(document["rules"])))
 	}
 	for _, forbidden := range []string{"x-hwid", "external-controller", "secret:"} {
@@ -122,6 +122,68 @@ func TestRussiaTemplateIsCredentialFreeAndComplete(t *testing.T) {
 	}
 	if regexp.MustCompile(`\p{Cyrillic}`).Match(body) {
 		t.Fatal("template contains a Cyrillic label")
+	}
+	for _, forbidden := range []string{"Bypass", "Auto-Bypass", "👻"} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("template contains the unused bypass hierarchy %q", forbidden)
+		}
+	}
+
+	groups := map[string]bool{"DIRECT": true, "PASS": true, "REJECT": true, "REJECT-DROP": true}
+	for _, item := range asSlice(document["proxy-groups"]) {
+		group := asMap(item)
+		name := nonEmptyString(group["name"])
+		groups[name] = true
+	}
+	for _, item := range asSlice(document["proxy-groups"]) {
+		group := asMap(item)
+		name := nonEmptyString(group["name"])
+		for _, proxy := range asSlice(group["proxies"]) {
+			if reference := nonEmptyString(proxy); !groups[reference] {
+				t.Fatalf("group %q references an unknown group or built-in %q", name, reference)
+			}
+		}
+	}
+	for _, required := range []string{"💬 Messengers", "📱 Social Networks", "🤖 AI"} {
+		if !groups[required] {
+			t.Fatalf("template is missing the policy group %q", required)
+		}
+	}
+
+	providers := asMap(document["rule-providers"])
+	usedProviders := make(map[string]bool)
+	for name, item := range providers {
+		provider := asMap(item)
+		if nonEmptyString(provider["type"]) != "http" || !strings.HasPrefix(nonEmptyString(provider["url"]), "https://") {
+			t.Fatalf("rule provider %q is not an HTTPS provider", name)
+		}
+	}
+	for index, item := range asSlice(document["rules"]) {
+		rule := nonEmptyString(item)
+		parts := strings.Split(rule, ",")
+		if len(parts) < 2 {
+			t.Fatalf("rule %d is malformed", index)
+		}
+		if parts[0] == "RULE-SET" {
+			provider := strings.TrimSpace(parts[1])
+			if _, exists := providers[provider]; !exists {
+				t.Fatalf("rule %d references unknown provider %q", index, provider)
+			}
+			usedProviders[provider] = true
+		}
+		targetIndex := len(parts) - 1
+		if strings.TrimSpace(parts[targetIndex]) == "no-resolve" {
+			targetIndex--
+		}
+		target := strings.TrimSpace(parts[targetIndex])
+		if !groups[target] {
+			t.Fatalf("rule %d references unknown target %q", index, target)
+		}
+	}
+	for name := range providers {
+		if !usedProviders[name] {
+			t.Fatalf("rule provider %q is declared but unused", name)
+		}
 	}
 }
 
@@ -214,7 +276,7 @@ func TestBuildNodesOnlyUsesRussiaTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated profile: %v", err)
 	}
-	if len(asSlice(generated["proxies"])) != 1 || len(asSlice(generated["proxy-groups"])) != 9 {
+	if len(asSlice(generated["proxies"])) != 1 || len(asSlice(generated["proxy-groups"])) != 11 {
 		t.Fatalf("nodes or template policy were not imported: %#v", generated)
 	}
 	if nonEmptyString(asMap(asSlice(generated["proxies"])[0])["name"]) != "imported-node" {
@@ -268,7 +330,7 @@ func TestForceTemplateDiscardsCompleteRemotePolicy(t *testing.T) {
 			t.Fatal("a forced PARTY template retained the remote policy group")
 		}
 	}
-	if len(asSlice(generated["rules"])) != 31 {
+	if len(asSlice(generated["rules"])) != 45 {
 		t.Fatalf("unexpected forced-template rules: %#v", generated["rules"])
 	}
 }

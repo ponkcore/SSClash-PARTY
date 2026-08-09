@@ -147,7 +147,7 @@ activation and rollback path.
 | Remnawave compatibility | Client negotiation and optional stable HWID headers without creating new identities on device-limit errors |
 | DNS-independent panel entry | `http://ROUTER_IP/party/` uses the ordinary LuCI login and then opens packaged Zashboard without a port, local DNS, or a controller token in the HTTP request path |
 | LuCI workflow | Source selection, status, logs, local rulesets, service control, Mihomo management, and authenticated Zashboard access |
-| Template catalog | The initial **Russia** policy template contains public rule providers and no proxy credentials or router secrets |
+| Template catalog | The built-in **Russia v2** policy adds dedicated video, messaging, social-network, AI, and gaming groups while containing only public rule providers and no proxy credentials or router secrets |
 
 ## Supported packages
 
@@ -297,7 +297,7 @@ fully user-controlled and does not inherit Router Integration settings.
 
 - Multiple subscription profiles can be saved, but only one is active and
   scheduled at a time; multi-subscription aggregation is not implemented.
-- Russia is the only packaged routing template.
+- Russia v2 is the only packaged routing template; its categories are English-labelled and do not include the optional bypass-node hierarchy used by some providers.
 - Proxy links are local input and do not have a scheduled downloader.
 - Managed source input is limited to 5 MiB, with additional per-line limits.
 - Package availability is limited to the release matrix above.

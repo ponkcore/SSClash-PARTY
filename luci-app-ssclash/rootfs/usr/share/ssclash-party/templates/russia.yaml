@@ -59,15 +59,28 @@ proxy-groups:
     type: select
     proxies:
       - "🛡️ VPN"
-  - name: "💬 Discord"
+    include-all: true
+  - name: "💬 Messengers"
     type: select
     proxies:
       - "🛡️ VPN"
+    include-all: true
+  - name: "📱 Social Networks"
+    type: select
+    proxies:
+      - "🛡️ VPN"
+    include-all: true
+  - name: "🤖 AI"
+    type: select
+    proxies:
+      - "🛡️ VPN"
+    include-all: true
   - name: "🎮 Games"
     type: select
     proxies:
       - DIRECT
       - "🛡️ VPN"
+    include-all: true
   - name: "⚡ Auto"
     type: url-test
     include-all: true
@@ -92,6 +105,13 @@ proxy-groups:
       - PASS
 
 rule-providers:
+  ai:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-ai-!cn.mrs
   apple:
     behavior: domain
     format: mrs
@@ -120,6 +140,13 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geoip/release/mihomo/direct.mrs
+  discord-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/discord.mrs
   epicgames:
     behavior: domain
     format: mrs
@@ -134,6 +161,20 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/escapefromtarkov.mrs
+  facebook-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/facebook.mrs
+  facebook-ips:
+    behavior: ipcidr
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/facebook.mrs
   faceit:
     behavior: domain
     format: mrs
@@ -162,6 +203,27 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/google-play.mrs
+  instagram-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/instagram.mrs
+  line-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/line.mrs
+  messenger-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/messenger.mrs
   microsoft:
     behavior: domain
     format: mrs
@@ -211,6 +273,20 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://raw.githubusercontent.com/roscomvpn/custom-category/release/mihomo/ru-apps.yaml
+  signal-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/signal.mrs
+  slack-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/slack.mrs
   steam:
     behavior: domain
     format: mrs
@@ -225,6 +301,20 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/telegram.mrs
+  telegram-ips:
+    behavior: ipcidr
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/telegram.mrs
+  tiktok-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/tiktok.mrs
   torrent-clients:
     behavior: classical
     format: yaml
@@ -253,6 +343,34 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/twitch-ads.mrs
+  twitter-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/twitter.mrs
+  twitter-ips:
+    behavior: ipcidr
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/twitter.mrs
+  viber-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/viber.mrs
+  whatsapp-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/whatsapp.mrs
   whitelist:
     behavior: domain
     format: mrs
@@ -274,6 +392,13 @@ rule-providers:
     proxy: "⚡ Auto"
     type: http
     url: https://cdn.jsdelivr.net/gh/hydraponique/roscomvpn-geosite/release/mihomo/youtube.mrs
+  zoom-domains:
+    behavior: domain
+    format: mrs
+    interval: 86400
+    proxy: "⚡ Auto"
+    type: http
+    url: https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/zoom.mrs
 
 rules:
   - RULE-SET,private-ips,DIRECT,no-resolve
@@ -286,7 +411,22 @@ rules:
   - RULE-SET,google-play,PROXY
   - RULE-SET,twitch-ads,PROXY
   - "RULE-SET,youtube,📺 YouTube"
-  - RULE-SET,telegram,PROXY
+  - "RULE-SET,telegram,💬 Messengers"
+  - "RULE-SET,telegram-ips,💬 Messengers"
+  - "RULE-SET,whatsapp-domains,💬 Messengers"
+  - "RULE-SET,discord-domains,💬 Messengers"
+  - "RULE-SET,signal-domains,💬 Messengers"
+  - "RULE-SET,viber-domains,💬 Messengers"
+  - "RULE-SET,line-domains,💬 Messengers"
+  - "RULE-SET,messenger-domains,💬 Messengers"
+  - "RULE-SET,slack-domains,💬 Messengers"
+  - "RULE-SET,zoom-domains,💬 Messengers"
+  - "RULE-SET,instagram-domains,📱 Social Networks"
+  - "RULE-SET,facebook-domains,📱 Social Networks"
+  - "RULE-SET,facebook-ips,📱 Social Networks"
+  - "RULE-SET,twitter-domains,📱 Social Networks"
+  - "RULE-SET,twitter-ips,📱 Social Networks"
+  - "RULE-SET,tiktok-domains,📱 Social Networks"
   - RULE-SET,github,PROXY
   - "RULE-SET,epicgames,🎮 Games"
   - "RULE-SET,origin,🎮 Games"
@@ -301,8 +441,7 @@ rules:
   - RULE-SET,category-ru,DIRECT
   - RULE-SET,whitelist,DIRECT
   - RULE-SET,torrent-clients,DIRECT
-  - "PROCESS-NAME-REGEX,discord,💬 Discord"
-  - "PROCESS-NAME-REGEX,vesktop,💬 Discord"
+  - "RULE-SET,ai,🤖 AI"
   - "RULE-SET,games,🎮 Games"
   - RULE-SET,ru-apps,DIRECT
   - RULE-SET,direct-ips,DIRECT

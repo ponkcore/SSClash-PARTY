@@ -3,9 +3,9 @@
   "templates": [
     {
       "id": "russia",
-      "version": 1,
+      "version": 2,
       "name": "Russia",
-      "description": "Routes Russian and private services directly and uses VPN for the remaining selected services."
+      "description": "Routes Russian and private services directly, with dedicated VPN groups for video, messaging, social networks, AI, and games."
     }
   ]
 }
