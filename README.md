@@ -173,7 +173,7 @@ activation and rollback path.
 ## Supported packages
 
 The current public preview,
-[`v4.7.0-party.6`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.6),
+[`v4.7.0-party.7`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.7),
 publishes the following architecture-specific packages:
 
 | OpenWrt release | Target | Package architecture | Format | Validation level |
