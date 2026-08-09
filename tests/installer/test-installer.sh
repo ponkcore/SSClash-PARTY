@@ -174,9 +174,9 @@ assert_contains "$output" 'Invalid PARTY release tag in manifest'
 dist="$temporary/dist"
 mkdir -p "$dist"
 packages=(
-    luci-app-ssclash-4.7.0-r9-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk
-    luci-app-ssclash-4.7.0-r9-openwrt-25.12.5-x86-64-x86_64.apk
-    luci-app-ssclash_4.7.0-r9_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk
+    luci-app-ssclash-4.7.0-r10-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk
+    luci-app-ssclash-4.7.0-r10-openwrt-25.12.5-x86-64-x86_64.apk
+    luci-app-ssclash_4.7.0-r10_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk
 )
 for package in "${packages[@]}"; do
     printf 'fixture for %s\n' "$package" > "$dist/$package"
@@ -187,12 +187,12 @@ for package in "${packages[@]}"; do
 done
 
 generated_manifest="$temporary/ssclash-party-preview-manifest"
-"$generator" "$dist" v4.7.0-party.7 preview "$generated_manifest"
+"$generator" "$dist" v4.7.0-party.8 preview "$generated_manifest"
 (
     cd "$temporary"
     sha256sum --check --strict ssclash-party-preview-manifest.sha256 >/dev/null
 )
-grep -Fq 'manifest|1|preview|v4.7.0-party.7|4.7.0-party.7' "$generated_manifest" || \
+grep -Fq 'manifest|1|preview|v4.7.0-party.8|4.7.0-party.8' "$generated_manifest" || \
     fail 'generated manifest metadata is wrong'
 [[ $(grep -c '^package|' "$generated_manifest") -eq 3 ]] || \
     fail 'generated manifest does not contain three packages'
@@ -203,7 +203,7 @@ bad_sidecar_dist="$temporary/bad-sidecar-dist"
 cp -R "$dist" "$bad_sidecar_dist"
 printf '%s\n' 'unexpected second record' >> \
     "$bad_sidecar_dist/${packages[0]}.sha256"
-if "$generator" "$bad_sidecar_dist" v4.7.0-party.7 preview \
+if "$generator" "$bad_sidecar_dist" v4.7.0-party.8 preview \
     "$temporary/bad-sidecar.manifest" >/dev/null 2>&1; then
     fail 'manifest generator accepted a multi-record package sidecar'
 fi
@@ -265,7 +265,7 @@ done
 mkdir -p \
     "$SSCLASH_PARTY_ROOT/usr/share/ssclash-party" \
     "$SSCLASH_PARTY_ROOT/usr/bin"
-printf '%s\n' '4.7.0-party.7' > \
+printf '%s\n' '4.7.0-party.8' > \
     "$SSCLASH_PARTY_ROOT/usr/share/ssclash-party/VERSION"
 cat > "$SSCLASH_PARTY_ROOT/usr/bin/ssclash-profile-merge" <<'MERGER'
 #!/bin/sh

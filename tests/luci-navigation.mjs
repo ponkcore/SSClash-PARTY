@@ -64,6 +64,13 @@ assert.match(templates, /return view\.extend\(\{/);
 assert.match(templates, /'prepare'/);
 assert.match(templates, /'save'/);
 assert.match(templates, /inline provider/);
+assert.match(templates, /_\('New template'\)/);
+assert.doesNotMatch(templates, /New visual template/);
+assert.match(templates, /ssclash-party-rule-card/);
+assert.match(templates, /ssclash-party-rule-header/);
+assert.match(templates, /ssclash-party-rule-fields/);
+assert.match(templates, /ssclash-party-rule-actions/);
+assert.doesNotMatch(templates, /grid-template-columns: 42px minmax\(300px,1fr\)/);
 assert.match(landing, /admin\/services\/ssclash\/dashboard/);
 
 console.log('LuCI navigation contract passed');

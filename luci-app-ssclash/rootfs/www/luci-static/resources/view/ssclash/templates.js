@@ -418,6 +418,17 @@ function visualEditor(documentValue, legacyLists, onChange) {
             return { mode: 'RAW', raw: String(value || '') };
         }
 
+        function ruleField(label, control, flex) {
+            return E('label', {
+                'class': 'ssclash-party-rule-field',
+                'style': 'display: flex; flex: ' + (flex || '1 1 190px') +
+                    '; min-width: 0; flex-direction: column; gap: 4px;'
+            }, [
+                E('span', { 'style': 'font-size: 11px; font-weight: 600; opacity: .78;' }, label),
+                control
+            ]);
+        }
+
         rules.forEach(function(rule, index) {
             const parsed = parseStructuredRule(rule);
             const type = selectInput(parsed.mode, structuredTypes.map(function(value) {
@@ -439,12 +450,6 @@ function visualEditor(documentValue, legacyLists, onChange) {
             const target = selectInput(parsed.target || groupNames[0] || 'DIRECT', choiceList(targetNames, parsed.target));
             const noResolve = E('input', { 'type': 'checkbox' });
             noResolve.checked = parsed.noResolve === true;
-            const structured = E('div', {
-                'style': 'display: grid; grid-template-columns: minmax(180px,1.4fr) minmax(150px,1fr) auto; gap: 6px; align-items: center;'
-            }, [ payload, target, E('label', { 'style': 'white-space: nowrap;' }, [ noResolve, ' ', _('no-resolve') ]) ]);
-            const editorLayout = E('div', {
-                'style': 'display: grid; grid-template-columns: minmax(130px,.7fr) minmax(260px,2.4fr); gap: 6px; align-items: center;'
-            }, [ type, parsed.mode === 'RAW' ? raw : structured ]);
 
             const updateRule = function() {
                 if (type.value === 'RAW') {
@@ -474,16 +479,53 @@ function visualEditor(documentValue, legacyLists, onChange) {
             payload.addEventListener('change', updateRule);
             target.addEventListener('change', updateRule);
             noResolve.addEventListener('change', updateRule);
-            if (parsed.mode === 'MATCH') payload.style.display = 'none';
+
+            const fields = [];
+            if (parsed.mode === 'RAW') {
+                fields.push(ruleField(_('Rule'), raw, '1 1 100%'));
+            } else {
+                if (parsed.mode !== 'MATCH') fields.push(ruleField(_('Value'), payload));
+                fields.push(ruleField(_('Target'), target));
+                if (parsed.mode !== 'MATCH') {
+                    fields.push(E('label', {
+                        'class': 'ssclash-party-rule-option',
+                        'style': 'display: flex; flex: 0 1 150px; min-width: 132px; gap: 6px; align-items: center; padding: 22px 2px 7px; white-space: nowrap;'
+                    }, [ noResolve, _('no-resolve') ]));
+                }
+            }
+
+            const upButton = smallButton('↑', function() { move(rules, index, -1); });
+            const downButton = smallButton('↓', function() { move(rules, index, 1); });
+            upButton.disabled = index === 0;
+            downButton.disabled = index === rules.length - 1;
+            upButton.setAttribute('aria-label', _('Move rule up'));
+            downButton.setAttribute('aria-label', _('Move rule down'));
+            upButton.title = _('Move rule up');
+            downButton.title = _('Move rule down');
 
             container.appendChild(E('div', {
-                'style': 'display: grid; grid-template-columns: 42px minmax(300px,1fr) auto auto auto; gap: 6px; align-items: center; margin: 7px 0; padding: 7px; border: 1px solid rgba(127,127,127,.16); border-radius: 4px;'
+                'class': 'ssclash-party-rule-card',
+                'style': 'display: block; min-width: 0; margin: 8px 0; padding: 9px; border: 1px solid rgba(127,127,127,.16); border-radius: 4px;'
             }, [
-                E('span', { 'style': 'text-align: right; opacity: .7;' }, String(index + 1)),
-                editorLayout,
-                smallButton('↑', function() { move(rules, index, -1); }),
-                smallButton('↓', function() { move(rules, index, 1); }),
-                smallButton(_('Delete'), function() { rules.splice(index, 1); render(); changed(); }, 'btn cbi-button-negative')
+                E('div', {
+                    'class': 'ssclash-party-rule-header',
+                    'style': 'display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; min-width: 0;'
+                }, [
+                    E('strong', { 'style': 'flex: 0 0 auto; padding: 7px 2px;' }, _('Rule %s').format(index + 1)),
+                    ruleField(_('Rule type'), type, '1 1 210px'),
+                    E('div', {
+                        'class': 'ssclash-party-rule-actions',
+                        'style': 'display: flex; flex: 0 1 auto; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto;'
+                    }, [
+                        upButton,
+                        downButton,
+                        smallButton(_('Delete'), function() { rules.splice(index, 1); render(); changed(); }, 'btn cbi-button-negative')
+                    ])
+                ]),
+                E('div', {
+                    'class': 'ssclash-party-rule-fields',
+                    'style': 'display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; min-width: 0; margin-top: 8px;'
+                }, fields)
             ]));
         });
         container.appendChild(smallButton(_('Add rule'), function() {
@@ -848,7 +890,7 @@ return view.extend({
                     smallButton(_('Import YAML'), function() {
                         openEditor({ document: starterDocument(), name: '', description: '' }, { newTemplate: true, yamlImport: true });
                     }),
-                    smallButton(_('New visual template'), function() {
+                    smallButton(_('New template'), function() {
                         openEditor({ document: starterDocument(), name: '', description: '' }, { newTemplate: true });
                     }, 'btn cbi-button-add')
                 ])

@@ -187,6 +187,19 @@ v2 supplies 11 groups, 42 public HTTPS rule providers, and 45 ordered rules.
 Template content is fingerprinted during profile generation so a concurrent
 edit invalidates a stale candidate.
 
+The responsive template-editor revision is:
+
+```text
+Git tag:         v4.7.0-party.8
+OpenWrt package: luci-app-ssclash 4.7.0-r10
+```
+
+It renames the visual editor action to **New template** and replaces the
+fixed-width ordered-rule grid with responsive rule cards. Rule type, fields,
+ordering actions, and deletion now wrap without overlap on narrow LuCI
+viewports. MATCH rules expose only their routing target, while other
+structured rules retain value, target, and `no-resolve` controls.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;
