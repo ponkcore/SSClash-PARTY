@@ -133,7 +133,7 @@ silently downgraded to an older stable or preview channel.
 
 ## LuCI updater
 
-**Services → SSClash → Settings → PARTY Software Update** invokes a constrained
+**Services → SSClash → Settings → Software Updates → PARTY** invokes a constrained
 router-local helper. It exposes only `status`, `check`, and `start` operations,
 always selects the stable channel, and delegates exact device matching and
 checksum verification to the packaged installer.

@@ -83,11 +83,13 @@ wget -qO /tmp/ssclash-party-install.sh https://github.com/ponkcore/SSClash-PARTY
 
 ### Обновление PARTY из LuCI
 
-Откройте **Services → SSClash → Settings → PARTY Software Update**. Там
+Откройте **Services → SSClash → Settings → Software Updates → PARTY**. В карточке
 показаны установленная версия, последняя стабильная версия и наличие
 обновления. Кнопка **Install update** в фоне запускает тот же установщик с
 точным сопоставлением устройства и проверкой контрольных сумм. Во время
-восстановления пакета и сервисов LuCI может ненадолго переподключиться.
+восстановления пакета и сервисов LuCI может ненадолго переподключиться. Соседняя
+карточка **Mihomo Kernel** управляет прокси-ядром отдельно, не создавая ещё один
+раздел Settings.
 
 ## Зачем нужен PARTY
 
@@ -242,7 +244,7 @@ marks, аутентификацию контроллера, DNS роутера, 
 ## Поддерживаемые пакеты
 
 Текущий стабильный релиз
-[`v4.7.0-party.9`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.9)
+[`v4.7.0-party.10`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.10)
 содержит следующие архитектурно-зависимые пакеты:
 
 | Версия OpenWrt | Target | Пакетная архитектура | Формат | Проверка |

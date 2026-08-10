@@ -266,11 +266,20 @@ msgstr "虚拟接口"
 msgid "Other Interfaces"
 msgstr "其他接口"
 
-msgid "Mihomo Kernel Management"
-msgstr "Mihomo 内核管理"
+msgid "Mihomo Kernel"
+msgstr "Mihomo 内核"
 
 msgid "Download and manage the Mihomo (Clash Meta) kernel binary."
 msgstr "下载并管理 Mihomo（Clash Meta）内核二进制文件。"
+
+msgid "Software Updates"
+msgstr "软件更新"
+
+msgid "PARTY and the Mihomo kernel are separate components. Check and update both from this section."
+msgstr "PARTY 与 Mihomo 内核是独立组件，可在此处分别检查和更新。"
+
+msgid "Configure traffic-facing interfaces and local service behavior. Subscription headers and HWID behavior remain on the Configuration page."
+msgstr "配置处理流量的接口和本地服务行为。订阅请求头与 HWID 设置仍位于 Configuration 页面。"
 
 msgid "Interface Processing Mode"
 msgstr "接口处理模式"
@@ -625,4 +634,3 @@ msgstr "捐赠"
 
 msgid "Support the author"
 msgstr "支持作者"
-

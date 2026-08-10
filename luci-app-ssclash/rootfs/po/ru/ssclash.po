@@ -280,8 +280,8 @@ msgstr "Виртуальные интерфейсы"
 msgid "Other Interfaces"
 msgstr "Прочие интерфейсы"
 
-msgid "Mihomo Kernel Management"
-msgstr "Управление ядром Mihomo"
+msgid "Mihomo Kernel"
+msgstr "Ядро Mihomo"
 
 msgid "Download and manage the Mihomo (Clash Meta) kernel binary."
 msgstr "Загрузка и управление исполняемым файлом ядра Mihomo (Clash Meta)."
@@ -713,8 +713,14 @@ msgstr "Установить проверенное стабильное обн�
 msgid "Could not start the PARTY update: %s"
 msgstr "Не удалось запустить обновление PARTY: %s"
 
-msgid "PARTY Software Update"
-msgstr "Обновление PARTY"
+msgid "Software Updates"
+msgstr "Обновления ПО"
+
+msgid "PARTY and the Mihomo kernel are separate components. Check and update both from this section."
+msgstr "PARTY и ядро Mihomo — отдельные компоненты. Проверять и обновлять их можно в этом разделе."
+
+msgid "Configure traffic-facing interfaces and local service behavior. Subscription headers and HWID behavior remain on the Configuration page."
+msgstr "Настройте интерфейсы обработки трафика и поведение локального сервиса. Заголовки подписок и параметры HWID остаются на странице Configuration."
 
 msgid "Updates use the stable release channel and install only a checksum-verified package that exactly matches this OpenWrt release, target, architecture, and package format."
 msgstr "Обновления используют стабильный канал и устанавливают только пакет с проверенной контрольной суммой, который точно соответствует версии OpenWrt, target, архитектуре и формату пакетов."

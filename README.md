@@ -80,11 +80,12 @@ always builds and validates a candidate first.
 
 ### Update PARTY from LuCI
 
-Open **Services → SSClash → Settings → PARTY Software Update**. The page shows
+Open **Services → SSClash → Settings → Software Updates → PARTY**. The card shows
 the installed version, the latest stable version, and whether an update is
 available. **Install update** runs the same exact-match and checksum-verified
 installer in the background. LuCI may reconnect briefly while the package and
-services are restored.
+services are restored. The adjacent **Mihomo Kernel** card manages the proxy
+engine separately without presenting it as another Settings section.
 
 ## Why PARTY
 
@@ -234,7 +235,7 @@ stays hidden there. A user can still change this preference in Zashboard.
 ## Supported packages
 
 The current stable release,
-[`v4.7.0-party.9`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.9),
+[`v4.7.0-party.10`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.10),
 publishes these architecture-specific packages:
 
 | OpenWrt release | Target | Package architecture | Format | Validation |

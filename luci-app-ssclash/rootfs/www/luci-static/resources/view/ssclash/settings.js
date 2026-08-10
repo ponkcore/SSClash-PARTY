@@ -594,12 +594,12 @@ async function downloadMihomoKernel(downloadUrl, version, arch) {
     }
 }
 
-let updateKernelStatusFn = null;
+function createKernelUpdateCard() {
+    const container = E('div', {
+        'style': 'min-width: 0; padding: 16px; border: 1px solid ' + PANEL_BORDER + '; border-radius: 6px; background: ' + PANEL_CARD_BG + '; color: ' + PANEL_TEXT + ';'
+    });
 
-function createKernelDownloadSection() {
-    const container = E('div', { 'class': 'cbi-section' });
-
-    container.appendChild(E('h2', _('Mihomo Kernel Management')));
+    container.appendChild(E('h3', { 'style': 'margin-top: 0;' }, _('Mihomo Kernel')));
     container.appendChild(E('div', { 'class': 'cbi-section-descr' },
         _('Download and manage the Mihomo (Clash Meta) kernel binary.')));
 
@@ -610,9 +610,64 @@ function createKernelDownloadSection() {
 
     container.appendChild(statusContainer);
 
+    const downloadButton = E('button', {
+        'id': 'download-kernel-btn',
+        'class': 'btn',
+        'type': 'button',
+        'click': async function() {
+            this.disabled = true;
+            this.textContent = _('Downloading...');
+
+            try {
+                const arch = await detectSystemArchitecture();
+                const downloadArch = getDownloadArch(arch);
+                const release = await getLatestMihomoRelease();
+
+                if (!release) throw new Error(_('Failed to get release information'));
+
+                const assetName = `mihomo-linux-${downloadArch}-${release.version}.gz`;
+                const asset = release.assets.find(a => a.name === assetName);
+
+                if (!asset) throw new Error(_('No binary found for architecture: %s').format(downloadArch));
+
+                const success = await downloadMihomoKernel(asset.browser_download_url, release.version, downloadArch);
+
+                if (success) {
+                    await updateKernelStatus();
+                }
+            } catch (e) {
+                ui.addNotification(null, E('p', _('Download failed: %s').format(e.message)), 'error');
+            } finally {
+                this.disabled = false;
+                if (this.textContent === _('Downloading...')) {
+                    this.textContent = _('Download Latest Kernel');
+                }
+            }
+        }
+    }, _('Download Latest Kernel'));
+
+    const refreshButton = E('button', {
+        'class': 'btn',
+        'type': 'button',
+        'style': 'margin-left: 10px;',
+        'click': function() {
+            updateKernelStatus();
+        }
+    }, _('Refresh Status'));
+
+    container.appendChild(E('div', { 'style': 'margin: 15px 0; text-align: center;' }, [
+        downloadButton,
+        refreshButton
+    ]));
+
+    container.appendChild(E('div', {
+        'style': 'margin: 10px 0 0 0; padding: 8px 12px; background: ' + PANEL_STATUS_WARN + '; border-left: 4px solid #ffc107; border-radius: 4px; font-size: 12px;'
+    }, [
+        E('span', { 'style': 'color: ' + PANEL_STATUS_TEXT_WARN + '; font-weight: bold;' }, '⚠️ ' + _('Restart Clash service after installing or updating the kernel'))
+    ]));
+
     async function updateKernelStatus() {
-        const statusElement = document.getElementById('kernel-status');
-        const downloadButton = document.getElementById('download-kernel-btn');
+        const statusElement = statusContainer;
         if (downloadButton) {
             downloadButton.disabled = true;
             downloadButton.textContent = _('Checking...');
@@ -676,7 +731,6 @@ function createKernelDownloadSection() {
         }
     }
 
-    updateKernelStatusFn = updateKernelStatus;
     setTimeout(updateKernelStatus, 100);
 
     return container;
@@ -686,8 +740,10 @@ function createKernelDownloadSection() {
 // SECTION: PARTY software updates
 // =============================================================================
 
-function createPartyUpdateSection(initialStatus) {
-    const container = E('div', { 'class': 'cbi-section' });
+function createPartyUpdateCard(initialStatus) {
+    const container = E('div', {
+        'style': 'min-width: 0; padding: 16px; border: 1px solid ' + PANEL_BORDER + '; border-radius: 6px; background: ' + PANEL_CARD_BG + '; color: ' + PANEL_TEXT + ';'
+    });
     const installedValue = E('strong', {}, initialStatus.installed || _('Unknown'));
     const latestValue = E('strong', {}, initialStatus.latest || _('Not checked'));
     const stateValue = E('strong', {}, '');
@@ -821,7 +877,7 @@ function createPartyUpdateSection(initialStatus) {
         }
     });
 
-    container.appendChild(E('h2', {}, _('PARTY Software Update')));
+    container.appendChild(E('h3', { 'style': 'margin-top: 0;' }, 'PARTY'));
     container.appendChild(E('p', { 'class': 'cbi-section-descr' }, [
         _('Updates use the stable release channel and install only a checksum-verified package that exactly matches this OpenWrt release, target, architecture, and package format.'),
         ' ',
@@ -867,6 +923,25 @@ function createPartyUpdateSection(initialStatus) {
     }, 100);
 
     return container;
+}
+
+function createSoftwareUpdatesSection(initialStatus) {
+    return E('div', {
+        'class': 'cbi-section',
+        'id': 'software-updates',
+        'style': 'margin-top: 28px; padding-top: 18px; border-top: 1px solid ' + PANEL_BORDER + ';'
+    }, [
+        E('h2', {}, _('Software Updates')),
+        E('p', { 'class': 'cbi-section-descr' }, _(
+            'PARTY and the Mihomo kernel are separate components. Check and update both from this section.'
+        )),
+        E('div', {
+            'style': 'display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; align-items: start;'
+        }, [
+            createPartyUpdateCard(initialStatus),
+            createKernelUpdateCard()
+        ])
+    ]);
 }
 
 // =============================================================================
@@ -1399,61 +1474,6 @@ return view.extend({
             settings.blockQuic,
             settings.useTmpfsRules
         );
-        const kernelDownloadSection = createKernelDownloadSection();
-
-        const downloadButton = E('button', {
-            'id': 'download-kernel-btn',
-            'class': 'btn',
-            'click': async function() {
-                this.disabled = true;
-                this.textContent = _('Downloading...');
-
-                try {
-                    const arch = await detectSystemArchitecture();
-                    const downloadArch = getDownloadArch(arch);
-                    const release = await getLatestMihomoRelease();
-
-                    if (!release) throw new Error(_('Failed to get release information'));
-
-                    const assetName = `mihomo-linux-${downloadArch}-${release.version}.gz`;
-                    const asset = release.assets.find(a => a.name === assetName);
-
-                    if (!asset) throw new Error(_('No binary found for architecture: %s').format(downloadArch));
-
-                    const success = await downloadMihomoKernel(asset.browser_download_url, release.version, downloadArch);
-
-                    if (success && updateKernelStatusFn) {
-                        updateKernelStatusFn();
-                    }
-                } catch (e) {
-                    ui.addNotification(null, E('p', _('Download failed: %s').format(e.message)), 'error');
-                } finally {
-                    this.disabled = false;
-                    this.textContent = _('Download Latest Kernel');
-                }
-            }
-        }, _('Download Latest Kernel'));
-
-        const refreshButton = E('button', {
-            'class': 'btn',
-            'style': 'margin-left: 10px;',
-            'click': function() {
-                if (updateKernelStatusFn) {
-                    updateKernelStatusFn();
-                }
-            }
-        }, _('Refresh Status'));
-
-        const kernelButtonContainer = E('div', { 'style': 'margin: 20px 0; text-align: center;' }, [
-            downloadButton, refreshButton
-        ]);
-
-        const kernelInfoSection = E('div', {
-            'style': 'margin: 10px 0 20px 0; padding: 8px 12px; background: ' + PANEL_STATUS_WARN + '; border-left: 4px solid #ffc107; border-radius: 4px; font-size: 12px;'
-        }, [
-            E('span', { 'style': 'color: ' + PANEL_STATUS_TEXT_WARN + '; font-weight: bold;' }, '⚠️ ' + _('Restart Clash service after installing or updating the kernel'))
-        ]);
-
         const modeRadios = modeSelector.querySelectorAll('input[name="interface_mode"]');
         modeRadios.forEach(radio => {
             radio.addEventListener('change', async function() {
@@ -1740,20 +1760,19 @@ return view.extend({
         }, 100);
 
         const routerIntegration = view_ssclash_router.render(routerData);
-        const partyUpdateSection = createPartyUpdateSection(partyUpdateStatus);
+        const softwareUpdatesSection = createSoftwareUpdatesSection(partyUpdateStatus);
         const serviceSettingsHeading = E('div', {
             'class': 'cbi-section',
             'style': 'margin-top: 28px; padding-top: 18px; border-top: 1px solid ' + PANEL_BORDER + ';'
         }, [
             E('h2', {}, _('Interface and service settings')),
             E('p', { 'class': 'cbi-section-descr' }, _(
-                'Configure traffic-facing interfaces, local service behavior, and Mihomo kernel management. Subscription headers and HWID behavior remain on the Configuration page.'
+                'Configure traffic-facing interfaces and local service behavior. Subscription headers and HWID behavior remain on the Configuration page.'
             ))
         ]);
 
         const view = E([
             routerIntegration,
-            partyUpdateSection,
             serviceSettingsHeading,
             modeSelector,
             autoDetectOptions,
@@ -1761,9 +1780,7 @@ return view.extend({
             additionalSettings,
             buttonContainer,
             statusSection,
-            kernelDownloadSection,
-            kernelButtonContainer,
-            kernelInfoSection
+            softwareUpdatesSection
         ]);
 
         return view;

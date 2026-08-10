@@ -432,7 +432,19 @@ jobs:
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.9
+          test "$(cat "$party_version")" = 4.7.0-party.10
+          settings_view="$inspect_root/www/luci-static/resources/view/ssclash/settings.js"
+          grep -q 'Software Updates' "$settings_view"
+          grep -q 'createPartyUpdateCard' "$settings_view"
+          grep -q 'createKernelUpdateCard' "$settings_view"
+          if grep -q 'PARTY Software Update' "$settings_view"; then
+            echo 'Legacy PARTY update section is still present' >&2
+            exit 1
+          fi
+          if grep -q 'Mihomo Kernel Management' "$settings_view"; then
+            echo 'Legacy Mihomo update section is still present' >&2
+            exit 1
+          fi
           jq -e \
             '.schema_version == 1 and any(.templates[]; .id == "russia")' \
             "$template_catalog" >/dev/null

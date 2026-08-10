@@ -218,6 +218,19 @@ as a stable subscription-and-link-first product. The profile merger module uses
 the PARTY repository namespace so build output no longer reports an unrelated
 source module path.
 
+The consolidated update-settings release is:
+
+```text
+Git tag:         v4.7.0-party.10
+OpenWrt package: luci-app-ssclash 4.7.0-r12
+```
+
+It replaces the separate PARTY and Mihomo update sections with one
+bottom-of-Settings **Software Updates** block. Responsive PARTY and Mihomo
+cards retain independent version checks and update actions, while making the
+component boundary explicit and keeping all software maintenance in one
+place.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;
