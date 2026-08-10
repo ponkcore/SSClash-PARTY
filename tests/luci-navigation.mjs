@@ -9,6 +9,7 @@ const settingsPath = new URL('www/luci-static/resources/view/ssclash/settings.js
 const routerPath = new URL('www/luci-static/resources/view/ssclash/router.js', sourceRoot);
 const configPath = new URL('www/luci-static/resources/view/ssclash/config.js', sourceRoot);
 const templatesPath = new URL('www/luci-static/resources/view/ssclash/templates.js', sourceRoot);
+const dashboardPath = new URL('www/luci-static/resources/view/ssclash/dashboard.js', sourceRoot);
 const landingPath = new URL('www/ssclash-party-index.html', sourceRoot);
 
 const menu = JSON.parse(await readFile(menuPath, 'utf8'));
@@ -47,11 +48,14 @@ const settings = await readFile(settingsPath, 'utf8');
 const router = await readFile(routerPath, 'utf8');
 const config = await readFile(configPath, 'utf8');
 const templates = await readFile(templatesPath, 'utf8');
+const dashboard = await readFile(dashboardPath, 'utf8');
 const landing = await readFile(landingPath, 'utf8');
 
 assert.match(settings, /'require view\.ssclash\.router';/);
 assert.match(settings, /view_ssclash_router\.load\(\)/);
 assert.match(settings, /view_ssclash_router\.render\(routerData\)/);
+assert.match(settings, /PARTY Software Update/);
+assert.match(settings, /ssclash-party-update/);
 assert.doesNotMatch(settings, /admin\/services\/ssclash\/router/);
 assert.match(router, /'require baseclass';/);
 assert.doesNotMatch(router, /'require view';/);
@@ -60,6 +64,8 @@ assert.match(router, /fakeip-whitelist-ipcidr\.txt/);
 assert.match(config, /L\.url\('admin\/services\/ssclash\/dashboard'\)/);
 assert.match(config, /ssclash-template-manager/);
 assert.match(config, /_\('Open Dashboard'\)/);
+assert.doesNotMatch(config, /ssclash-version-footer/);
+assert.doesNotMatch(config, /SSCLASH_(UPSTREAM|AUTHOR|DONATE)_URL/);
 assert.match(templates, /return view\.extend\(\{/);
 assert.match(templates, /'prepare'/);
 assert.match(templates, /'save'/);
@@ -72,5 +78,7 @@ assert.match(templates, /ssclash-party-rule-fields/);
 assert.match(templates, /ssclash-party-rule-actions/);
 assert.doesNotMatch(templates, /grid-template-columns: 42px minmax\(300px,1fr\)/);
 assert.match(landing, /admin\/services\/ssclash\/dashboard/);
+assert.match(dashboard, /config\/display-global-by-mode/);
+assert.match(dashboard, /localStorage\.getItem\(globalModeKey\) === null/);
 
 console.log('LuCI navigation contract passed');

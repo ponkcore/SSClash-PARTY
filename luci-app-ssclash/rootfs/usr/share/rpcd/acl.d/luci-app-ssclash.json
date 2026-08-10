@@ -50,6 +50,7 @@
                 "/usr/libexec/ssclash-router-integration": [ "exec" ],
                 "/usr/libexec/ssclash-template-manager": [ "exec" ],
                 "/usr/libexec/ssclash-party-panel": [ "exec" ],
+                "/usr/libexec/ssclash-party-update": [ "exec" ],
                 "/usr/bin/curl": [ "exec" ],
                 "/bin/gzip": [ "exec" ],
                 "/bin/mv": [ "exec" ],

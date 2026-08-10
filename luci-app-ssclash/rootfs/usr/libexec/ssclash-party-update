@@ -1,0 +1,320 @@
+#!/bin/sh
+
+# Constrained stable-channel updater used by LuCI. Detailed installer and
+# package-manager output remains in a private router-local log because package
+# lifecycle hooks may expose network endpoint details.
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+STATE_DIR=${SSCLASH_PARTY_UPDATE_STATE_DIR:-/tmp/ssclash-party-update}
+STATE_FILE=$STATE_DIR/status
+LOG_FILE=$STATE_DIR/update.log
+LOCK_DIR=$STATE_DIR/lock
+VERSION_FILE=${SSCLASH_PARTY_VERSION_FILE:-/usr/share/ssclash-party/VERSION}
+INSTALLER=${SSCLASH_PARTY_INSTALLER:-/usr/libexec/ssclash-party-installer}
+SELF=${SSCLASH_PARTY_UPDATE_SELF:-$0}
+
+is_party_version() {
+	printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)*-party\.[0-9]+$'
+}
+
+is_uint() {
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+		*) return 0 ;;
+	esac
+}
+
+now_epoch() {
+	date +%s 2>/dev/null || printf '0\n'
+}
+
+ensure_state_dir() {
+	umask 077
+	mkdir -p "$STATE_DIR" || return 1
+	chmod 700 "$STATE_DIR" 2>/dev/null || true
+	return 0
+}
+
+installed_version() {
+	local version
+	version="$(sed -n '1p' "$VERSION_FILE" 2>/dev/null)"
+	if is_party_version "$version"; then
+		printf '%s\n' "$version"
+	else
+		printf '%s\n' 'unknown'
+	fi
+}
+
+state_value() {
+	local key="$1"
+	[ -r "$STATE_FILE" ] || return 0
+	sed -n "s/^${key}=//p" "$STATE_FILE" | sed -n '1p'
+}
+
+write_state() {
+	local phase="$1"
+	local installed="$2"
+	local latest="$3"
+	local checked_at="$4"
+	local started_at="$5"
+	local finished_at="$6"
+
+	ensure_state_dir || return 1
+	case "$phase" in
+		not_checked|checking|queued|updating|update_available|up_to_date|ahead|success|check_failed|update_failed) ;;
+		*) return 1 ;;
+	esac
+	case "$installed" in
+		unknown) ;;
+		*) is_party_version "$installed" || return 1 ;;
+	esac
+	[ -z "$latest" ] || is_party_version "$latest" || return 1
+	is_uint "$checked_at" || return 1
+	is_uint "$started_at" || return 1
+	is_uint "$finished_at" || return 1
+
+	umask 077
+	{
+		printf 'phase=%s\n' "$phase"
+		printf 'installed=%s\n' "$installed"
+		printf 'latest=%s\n' "$latest"
+		printf 'checked_at=%s\n' "$checked_at"
+		printf 'started_at=%s\n' "$started_at"
+		printf 'finished_at=%s\n' "$finished_at"
+	} > "$STATE_FILE.tmp" || return 1
+	chmod 600 "$STATE_FILE.tmp" 2>/dev/null || true
+	mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+
+worker_is_alive() {
+	local pid
+	pid="$(sed -n '1p' "$LOCK_DIR/pid" 2>/dev/null)"
+	is_uint "$pid" || return 1
+	kill -0 "$pid" 2>/dev/null
+}
+
+release_lock() {
+	rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+	rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+acquire_lock() {
+	ensure_state_dir || return 1
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		printf '%s\n' "$$" > "$LOCK_DIR/pid" || return 1
+		chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+		return 0
+	fi
+	worker_is_alive && return 1
+	release_lock
+	mkdir "$LOCK_DIR" 2>/dev/null || return 1
+	printf '%s\n' "$$" > "$LOCK_DIR/pid" || return 1
+	chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+}
+
+normalize_running_state() {
+	local phase installed latest checked_at started_at now
+	phase="$(state_value phase)"
+	case "$phase" in
+		queued|updating|checking)
+			worker_is_alive && return 0
+			installed="$(installed_version)"
+			latest="$(state_value latest)"
+			checked_at="$(state_value checked_at)"
+			started_at="$(state_value started_at)"
+			is_uint "$checked_at" || checked_at=0
+			is_uint "$started_at" || started_at=0
+			now="$(now_epoch)"
+			if [ "$started_at" -gt 0 ] && [ "$now" -ge "$started_at" ] && \
+				[ $((now - started_at)) -lt 10 ]; then
+				return 0
+			fi
+			write_state update_failed "$installed" "$latest" "$checked_at" "$started_at" "$now" || true
+			release_lock
+			;;
+	esac
+}
+
+emit_status() {
+	local phase installed latest checked_at started_at finished_at current
+	normalize_running_state
+	phase="$(state_value phase)"
+	installed="$(state_value installed)"
+	latest="$(state_value latest)"
+	checked_at="$(state_value checked_at)"
+	started_at="$(state_value started_at)"
+	finished_at="$(state_value finished_at)"
+
+	[ -n "$phase" ] || phase=not_checked
+	case "$phase" in
+		not_checked|checking|queued|updating|update_available|up_to_date|ahead|success|check_failed|update_failed) ;;
+		*) phase=check_failed ;;
+	esac
+	case "$installed" in
+		unknown) ;;
+		*) is_party_version "$installed" || installed="$(installed_version)" ;;
+	esac
+	[ -z "$latest" ] || is_party_version "$latest" || latest=''
+	is_uint "$checked_at" || checked_at=0
+	is_uint "$started_at" || started_at=0
+	is_uint "$finished_at" || finished_at=0
+
+	current="$(installed_version)"
+	if [ "$installed" != "$current" ]; then
+		installed="$current"
+		case "$phase" in
+			checking|queued|updating) ;;
+			*)
+				phase=not_checked
+				latest=''
+				checked_at=0
+				started_at=0
+				finished_at=0
+				write_state "$phase" "$installed" "$latest" \
+					"$checked_at" "$started_at" "$finished_at" || true
+				;;
+		esac
+	fi
+
+	printf '{"ok":true,"phase":"%s","installed":"%s","latest":"%s","checked_at":%s,"started_at":%s,"finished_at":%s}\n' \
+		"$phase" "$installed" "$latest" "$checked_at" "$started_at" "$finished_at"
+}
+
+parse_update_marker() {
+	local marker old_ifs marker_name marker_installed marker_latest marker_relation extra
+	marker="$(grep '^SSCLASH_PARTY_UPDATE|' "$LOG_FILE" 2>/dev/null | tail -n 1)"
+	[ -n "$marker" ] || return 1
+	old_ifs=$IFS
+	IFS='|'
+	read -r marker_name marker_installed marker_latest marker_relation extra <<-EOF
+	$marker
+	EOF
+	IFS=$old_ifs
+	[ "$marker_name" = SSCLASH_PARTY_UPDATE ] || return 1
+	[ -z "${extra:-}" ] || return 1
+	case "$marker_installed" in
+		none) marker_installed=unknown ;;
+		*) is_party_version "$marker_installed" || return 1 ;;
+	esac
+	is_party_version "$marker_latest" || return 1
+	case "$marker_relation" in
+		update-available|up-to-date|installed-newer) ;;
+		*) return 1 ;;
+	esac
+	CHECK_INSTALLED=$marker_installed
+	CHECK_LATEST=$marker_latest
+	CHECK_RELATION=$marker_relation
+}
+
+perform_check() {
+	local checked_at phase started_at
+	checked_at="$(now_epoch)"
+	started_at="$(state_value started_at)"
+	is_uint "$started_at" || started_at=0
+	ensure_state_dir || return 1
+	umask 077
+	: > "$LOG_FILE" || return 1
+	chmod 600 "$LOG_FILE" 2>/dev/null || true
+	if ! "$INSTALLER" check --channel stable --no-core > "$LOG_FILE" 2>&1; then
+		write_state check_failed "$(installed_version)" '' "$checked_at" "$started_at" "$checked_at" || true
+		return 1
+	fi
+	if ! parse_update_marker; then
+		write_state check_failed "$(installed_version)" '' "$checked_at" "$started_at" "$checked_at" || true
+		return 1
+	fi
+	case "$CHECK_RELATION" in
+		update-available) phase=update_available ;;
+		up-to-date) phase=up_to_date ;;
+		installed-newer) phase=ahead ;;
+	esac
+	write_state "$phase" "$CHECK_INSTALLED" "$CHECK_LATEST" "$checked_at" "$started_at" "$checked_at"
+}
+
+run_check_worker() {
+	[ -d "$LOCK_DIR" ] || exit 1
+	trap release_lock EXIT HUP INT TERM
+	printf '%s\n' "$$" > "$LOCK_DIR/pid" || exit 1
+	chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+	perform_check || true
+}
+
+start_check() {
+	local now
+	if ! acquire_lock; then
+		emit_status
+		return 0
+	fi
+	now="$(now_epoch)"
+	write_state checking "$(installed_version)" '' 0 "$now" 0 || {
+		release_lock
+		return 1
+	}
+	if command -v setsid >/dev/null 2>&1; then
+		setsid "$SELF" __check_worker >/dev/null 2>&1 </dev/null &
+	else
+		"$SELF" __check_worker >/dev/null 2>&1 </dev/null &
+	fi
+	emit_status
+}
+
+run_worker() {
+	local phase target started_at finished_at current
+	[ -d "$LOCK_DIR" ] || exit 1
+	trap release_lock EXIT HUP INT TERM
+	printf '%s\n' "$$" > "$LOCK_DIR/pid" || exit 1
+	chmod 600 "$LOCK_DIR/pid" 2>/dev/null || true
+	started_at="$(now_epoch)"
+	write_state checking "$(installed_version)" '' 0 "$started_at" 0 || exit 1
+	perform_check || exit 1
+	phase="$(state_value phase)"
+	[ "$phase" = update_available ] || exit 0
+	target="$(state_value latest)"
+	write_state updating "$(installed_version)" "$target" "$(state_value checked_at)" "$started_at" 0 || exit 1
+	if "$INSTALLER" upgrade --yes --channel stable --no-core >> "$LOG_FILE" 2>&1; then
+		current="$(installed_version)"
+		finished_at="$(now_epoch)"
+		if [ "$current" = "$target" ]; then
+			write_state success "$current" "$target" "$(state_value checked_at)" "$started_at" "$finished_at" || true
+		else
+			write_state update_failed "$current" "$target" "$(state_value checked_at)" "$started_at" "$finished_at" || true
+		fi
+	else
+		finished_at="$(now_epoch)"
+		write_state update_failed "$(installed_version)" "$target" "$(state_value checked_at)" "$started_at" "$finished_at" || true
+	fi
+}
+
+start_update() {
+	local now
+	if ! acquire_lock; then
+		emit_status
+		return 0
+	fi
+	now="$(now_epoch)"
+	write_state queued "$(installed_version)" '' 0 "$now" 0 || {
+		release_lock
+		return 1
+	}
+	if command -v setsid >/dev/null 2>&1; then
+		setsid "$SELF" __worker >/dev/null 2>&1 </dev/null &
+	else
+		"$SELF" __worker >/dev/null 2>&1 </dev/null &
+	fi
+	emit_status
+}
+
+case "${1:-status}" in
+	status) ensure_state_dir && emit_status ;;
+	check) start_check ;;
+	start) start_update ;;
+	__check_worker) run_check_worker ;;
+	__worker) run_worker ;;
+	*)
+		printf '%s\n' 'Usage: ssclash-party-update {status|check|start}' >&2
+		exit 2
+		;;
+esac

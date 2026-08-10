@@ -5,8 +5,8 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-ssclash
 PKG_VERSION:=4.7.0
-PKG_RELEASE:=10
-PKG_MAINTAINER:=ZeroChaos <dev@null.la>, ponkcore
+PKG_RELEASE:=11
+PKG_MAINTAINER:=ponkcore
 PKG_LICENSE:=GPL-2.0-only
 PKG_LICENSE_FILES:=LICENSE
 PKG_URL:=https://github.com/ponkcore/SSClash-PARTY
@@ -28,7 +28,7 @@ PKG_CONFIG_DEPENDS:= \
 PKG_BUILD_DEPENDS:=luci-base/host golang/host
 PKG_BUILD_PARALLEL:=1
 
-GO_PKG:=github.com/zerolabnet/SSClash/luci-app-ssclash/profile-merge
+GO_PKG:=github.com/ponkcore/SSClash-PARTY/luci-app-ssclash/profile-merge
 GO_PKG_BUILD_PKG:=$(GO_PKG)
 GO_PKG_INSTALL_EXTRA:=vendor/modules.txt
 
@@ -76,6 +76,7 @@ define Build/Prepare
 	$(INSTALL_DIR) $(PKG_BUILD_DIR)
 	$(CP) ./profile-merge/. $(PKG_BUILD_DIR)/
 	$(CP) ../LICENSE $(PKG_BUILD_DIR)/
+	$(CP) ../install-ssclash.sh $(PKG_BUILD_DIR)/ssclash-party-installer
 endef
 
 define Build/Compile
@@ -121,8 +122,10 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-profile-sync $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-migrate $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-panel $(1)/usr/libexec/
+	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-party-update $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-router-integration $(1)/usr/libexec/
 	$(INSTALL_BIN) ./rootfs/usr/libexec/ssclash-template-manager $(1)/usr/libexec/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ssclash-party-installer $(1)/usr/libexec/
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./rootfs/etc/hotplug.d/iface/40-clash $(1)/etc/hotplug.d/iface/
@@ -190,7 +193,7 @@ fi
 if [ -f /usr/share/ssclash-party/VERSION ]; then
 	detected_version="$$(sed -n '1p' /usr/share/ssclash-party/VERSION)"
 	case "$$detected_version" in
-		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5|4.7.0-party.6|4.7.0-party.7|4.7.0-party.8)
+		4.7.0-party.1|4.7.0-party.2|4.7.0-party.3|4.7.0-party.4|4.7.0-party.5|4.7.0-party.6|4.7.0-party.7|4.7.0-party.8|4.7.0-party.9)
 			PREVIOUS_PARTY_VERSION="$$detected_version"
 			;;
 	esac

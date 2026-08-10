@@ -61,6 +61,18 @@ return view.extend({
         parameters.set('secret', secret);
         parameters.set('hostname', controller.host);
         parameters.set('port', controller.port);
+
+        // Zashboard shows Mihomo's built-in GLOBAL selector in every mode when
+        // this preference is absent. PARTY runs managed profiles in rule mode,
+        // so default to the mode-aware behavior without overriding a choice the
+        // browser has already saved.
+        try {
+            const globalModeKey = 'config/display-global-by-mode';
+            if (window.localStorage.getItem(globalModeKey) === null) {
+                window.localStorage.setItem(globalModeKey, 'true');
+            }
+        } catch (_error) {}
+
         const target = '/party-dashboard/#/setup?' + parameters.toString();
 
         window.setTimeout(function() {

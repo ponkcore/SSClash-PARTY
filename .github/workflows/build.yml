@@ -10,9 +10,17 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Optional tag for a GitHub prerelease"
+        description: "Optional PARTY release tag"
         required: false
         type: string
+      release_channel:
+        description: "Release channel"
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - preview
 
 permissions:
   contents: read
@@ -165,6 +173,7 @@ jobs:
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel
+          sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-party-update
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration
           sh -n luci-app-ssclash/rootfs/usr/libexec/ssclash-template-manager
           sh -n luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
@@ -176,6 +185,7 @@ jobs:
             luci-app-ssclash/rootfs/usr/libexec/ssclash-profile-sync \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-party-migrate \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-party-panel \
+            luci-app-ssclash/rootfs/usr/libexec/ssclash-party-update \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-router-integration \
             luci-app-ssclash/rootfs/usr/libexec/ssclash-template-manager \
             luci-app-ssclash/rootfs/etc/init.d/ssclash-profile-sync
@@ -190,6 +200,7 @@ jobs:
           bash -n tests/router-integration/fake-command
           bash -n tests/router-integration/test-router-integration.sh
           bash -n tests/migration/test-migration.sh
+          bash -n tests/updater/test-updater.sh
           bash -n tests/templates/test-template-manager.sh
           shellcheck -s bash \
             scripts/build-installer-manifest.sh \
@@ -203,6 +214,7 @@ jobs:
             tests/router-integration/fake-command \
             tests/router-integration/test-router-integration.sh \
             tests/migration/test-migration.sh \
+            tests/updater/test-updater.sh \
             tests/templates/test-template-manager.sh
           (
             cd installer/channels
@@ -214,6 +226,7 @@ jobs:
           tests/profile-sync/test-profile-sync.sh
           tests/router-integration/test-router-integration.sh
           tests/migration/test-migration.sh
+          tests/updater/test-updater.sh
           tests/templates/test-template-manager.sh
           node tests/luci-navigation.mjs
           for javascript in \
@@ -390,6 +403,8 @@ jobs:
           helper="$inspect_root/usr/libexec/ssclash-profile-sync"
           migration="$inspect_root/usr/libexec/ssclash-party-migrate"
           panel_helper="$inspect_root/usr/libexec/ssclash-party-panel"
+          update_helper="$inspect_root/usr/libexec/ssclash-party-update"
+          party_installer="$inspect_root/usr/libexec/ssclash-party-installer"
           router_helper="$inspect_root/usr/libexec/ssclash-router-integration"
           template_helper="$inspect_root/usr/libexec/ssclash-template-manager"
           profile_config="$inspect_root/etc/config/ssclash_profile"
@@ -402,6 +417,8 @@ jobs:
           test -x "$helper"
           test -x "$migration"
           test -x "$panel_helper"
+          test -x "$update_helper"
+          test -x "$party_installer"
           test -x "$router_helper"
           test -x "$template_helper"
           test -f "$inspect_root/www/ssclash-party-index.html"
@@ -415,7 +432,7 @@ jobs:
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.8
+          test "$(cat "$party_version")" = 4.7.0-party.9
           jq -e \
             '.schema_version == 1 and any(.templates[]; .id == "russia")' \
             "$template_catalog" >/dev/null
@@ -450,6 +467,8 @@ jobs:
           sh -n "$helper"
           sh -n "$migration"
           sh -n "$panel_helper"
+          sh -n "$update_helper"
+          sh -n "$party_installer"
           sh -n "$router_helper"
           sh -n "$inspect_root/etc/init.d/ssclash-profile-sync"
           for javascript in config dashboard router settings; do
@@ -502,7 +521,7 @@ jobs:
           fi
 
   release:
-    name: Create preview release
+    name: Create PARTY release
     needs:
       - gate
       - package
@@ -524,14 +543,15 @@ jobs:
 
       - name: Build installer release assets
         env:
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           scripts/build-installer-manifest.sh \
             release \
             "$RELEASE_TAG" \
-            preview \
-            release/ssclash-party-preview-manifest
+            "$RELEASE_CHANNEL" \
+            "release/ssclash-party-${RELEASE_CHANNEL}-manifest"
           install -m 0755 \
             install-ssclash.sh \
             release/ssclash-party-install.sh
@@ -543,15 +563,21 @@ jobs:
 
       - name: Create release notes
         env:
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           {
-            echo "## SSClash PARTY preview"
+            echo "## SSClash PARTY ${RELEASE_TAG}"
             echo
-            echo "This is an independent downstream build, not an official zerolabnet release."
+            if [[ "$RELEASE_CHANNEL" == stable ]]; then
+              echo "This is a stable PARTY release."
+            else
+              echo "This is a preview PARTY release for testing before stable promotion."
+            fi
             echo
-            echo "It adds three configuration sources, saved subscription profiles, router-owned DNS and transport controls, and a DNS-independent authenticated dashboard entry."
-            echo "Managed candidates use Mihomo validation, transactional activation, health checks, and rollback."
+            echo "PARTY accepts adaptive subscriptions, proxy share links with routing templates, and complete manual YAML."
+            echo "It includes saved subscription profiles, router-owned DNS and transport controls, Template Studio, and an authenticated Zashboard entry."
+            echo "Managed candidates use Mihomo validation, transactional activation, health checks, and rollback to the last known-good profile."
             echo
             echo "Every package is architecture-specific because it includes the profile merger."
             echo "Install only the artifact matching the OpenWrt version and package architecture."
@@ -560,14 +586,19 @@ jobs:
             echo "The recommended installer performs exact device matching and verifies every payload:"
             echo
             echo '```sh'
-            echo "wget -qO /tmp/ssclash-party-install.sh https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh install"
+            if [[ "$RELEASE_CHANNEL" == stable ]]; then
+              echo "wget -qO /tmp/ssclash-party-install.sh https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh install"
+            else
+              echo "wget -qO /tmp/ssclash-party-install.sh https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh install --channel preview"
+            fi
             echo '```'
           } > release-notes.md
 
-      - name: Publish prerelease
+      - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag }}
           body_path: release-notes.md
           files: release/*
-          prerelease: true
+          prerelease: ${{ inputs.release_channel == 'preview' }}
+          make_latest: ${{ inputs.release_channel == 'stable' }}

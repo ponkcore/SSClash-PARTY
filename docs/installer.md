@@ -6,12 +6,12 @@ exactly matches the running system.
 
 ## Recommended command
 
-The canonical preview command downloads the complete script before executing
+The canonical stable command downloads the complete script before executing
 it. The `&&` boundary prevents a failed or partial download from reaching the
 shell:
 
 ```sh
-wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh install
+wget -qO /tmp/ssclash-party-install.sh https://github.com/ponkcore/SSClash-PARTY/releases/latest/download/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh install
 ```
 
 This is one shell command, even though it deliberately keeps download and
@@ -21,12 +21,12 @@ execution as two ordered operations. Piping a network response directly into
 Run only the read-only compatibility check with:
 
 ```sh
-wget -qO /tmp/ssclash-party-install.sh https://raw.githubusercontent.com/ponkcore/SSClash-PARTY/party/install-ssclash.sh && sh /tmp/ssclash-party-install.sh doctor
+wget -qO /tmp/ssclash-party-install.sh https://github.com/ponkcore/SSClash-PARTY/releases/latest/download/ssclash-party-install.sh && sh /tmp/ssclash-party-install.sh doctor
 ```
 
 The installer is interactive by default. Automation may add `--yes`, but an
-unattended migration from upstream SSClash also requires the explicit
-`--allow-upstream-migration` acknowledgement.
+unattended replacement of a compatible non-PARTY package also requires the
+explicit `--allow-package-migration` acknowledgement.
 
 ## Local device inspection
 
@@ -97,7 +97,7 @@ The installer never:
 - replaces an existing valid Mihomo core merely because a newer release
   exists.
 
-Before an existing SSClash installation is changed, a mode-0600 recovery
+Before an existing compatible installation is changed, a mode-0600 recovery
 archive is written under `/tmp`. It contains only the relevant configuration,
 managed links, active YAML, and a non-secret service-state record. The core is
 installed only when missing or invalid. Its candidate binary and existing
@@ -112,6 +112,7 @@ stopped and disabled until the user configures PARTY through LuCI.
 
 ```text
 doctor     read-only compatibility and conflict check
+check      read-only check ending with a machine-readable update record
 install    fresh installation or safe in-place update
 upgrade    update only when PARTY is already installed
 ```
@@ -122,12 +123,27 @@ Useful options:
 --yes                       skip final confirmation
 --dry-run                   print the plan without mutation
 --no-core                   leave Mihomo installation to the operator
---allow-upstream-migration  acknowledge unattended upstream replacement
---channel preview|stable    choose the release channel
+--allow-package-migration   acknowledge unattended non-PARTY replacement
+--channel stable|preview    choose the release channel (default: stable)
 ```
 
-The stable channel intentionally remains unavailable until PARTY publishes a
-non-preview release with an installer manifest.
+The stable channel resolves only GitHub's latest non-prerelease and requires a
+`ssclash-party-stable-manifest` asset. A newer installed PARTY version is never
+silently downgraded to an older stable or preview channel.
+
+## LuCI updater
+
+**Services → SSClash → Settings → PARTY Software Update** invokes a constrained
+router-local helper. It exposes only `status`, `check`, and `start` operations,
+always selects the stable channel, and delegates exact device matching and
+checksum verification to the packaged installer.
+
+The update runs detached because installing LuCI may restart `rpcd` and the
+web service. A lock prevents concurrent updates. The UI receives only a fixed,
+non-secret state record; full installer and package-manager output is retained
+in a mode-0600 file below `/tmp/ssclash-party-update/` and is never returned to
+the browser. Package lifecycle hooks restore the prior service state, while
+the installer creates its ordinary recovery archive before mutation.
 
 ## Maintainer release contract
 
@@ -136,7 +152,9 @@ requires the release tag to match the embedded PARTY version, and emits the
 manifest plus its checksum. The GitHub Actions release job adds the installer,
 manifest, and their sidecars to the ordinary package assets.
 
-`tests/installer/test-installer.sh` covers exact Cudy and x86 matches,
+`tests/installer/test-installer.sh` covers exact ARM64 and x86 matches,
 unsupported targets, wrong package managers, proxy conflicts, corrupted and
-duplicate manifests, dry runs, same-version no-op behavior, and release
-manifest generation.
+duplicate manifests, dry runs, same-version no-op behavior, downgrade
+prevention, and release manifest generation. `tests/updater/test-updater.sh`
+covers update discovery, background completion, private logs, no-op status,
+ahead-of-channel protection, and redacted failures.

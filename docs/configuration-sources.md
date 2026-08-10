@@ -132,7 +132,7 @@ with no usable proxy cannot pass `mihomo -t` and is never activated.
 
 ## Manual YAML mode
 
-Manual YAML mode retains the original SSClash workflow. The editor contains
+Manual YAML mode retains the fully user-controlled workflow. The editor contains
 the complete authoritative configuration and offers:
 
 - save and validate without activation;
@@ -158,7 +158,7 @@ Custom templates are stored separately below:
 /etc/ssclash-party/templates/
 ```
 
-The first packaged catalog entry is **Russia v2**. It is derived from the
+The first packaged catalog entry is **Russia**. It is derived from the
 tested router policy used during PARTY development and contains no proxy
 credentials, subscription URLs, HWIDs, controller secrets, local listeners,
 or arbitrary file providers. It provides 11 English policy groups, 42 public

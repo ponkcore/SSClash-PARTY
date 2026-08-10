@@ -1,4 +1,4 @@
-module github.com/zerolabnet/SSClash/luci-app-ssclash/profile-merge
+module github.com/ponkcore/SSClash-PARTY/luci-app-ssclash/profile-merge
 
 go 1.22.0
 

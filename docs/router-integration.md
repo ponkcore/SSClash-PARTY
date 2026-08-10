@@ -67,7 +67,7 @@ Marks 1 and 3 are reserved by the PARTY firewall path. Controller and TPROXY
 ports must not collide, and the DNS listener must use a different loopback
 port. TUN or mixed mode requires `/dev/net/tun`.
 
-IPv6 transparent routing is deliberately unavailable in this preview. PARTY
+IPv6 transparent routing is deliberately unavailable in the current release. PARTY
 will not expose an enable switch until its nftables and iptables paths can
 provide the same tested leak-protection contract.
 

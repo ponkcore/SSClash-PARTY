@@ -183,7 +183,7 @@ Mihomo validation, and a visual editor for groups, HTTPS or inline rule
 providers, and ordered rules. The legacy Rulesets route becomes a hidden alias
 to Templates; retained list files can be copied into portable inline providers.
 The technical Fake-IP IP-CIDR whitelist moves into Router Integration. Russia
-v2 supplies 11 groups, 42 public HTTPS rule providers, and 45 ordered rules.
+supplies 11 groups, 42 public HTTPS rule providers, and 45 ordered rules.
 Template content is fingerprinted during profile generation so a concurrent
 edit invalidates a stale candidate.
 
@@ -199,6 +199,24 @@ fixed-width ordered-rule grid with responsive rule cards. Rule type, fields,
 ordering actions, and deletion now wrap without overlap on narrow LuCI
 viewports. MATCH rules expose only their routing target, while other
 structured rules retain value, target, and `no-resolve` controls.
+
+The first stable release is:
+
+```text
+Git tag:         v4.7.0-party.9
+OpenWrt package: luci-app-ssclash 4.7.0-r11
+```
+
+It adds stable-channel updates under Settings, with installed/latest version
+display, exact package matching, checksum verification, a detached lock,
+private package-manager logs, and downgrade prevention. The packaged installer
+defaults to the latest stable release. Zashboard uses mode-aware `GLOBAL`
+display by default without carrying a dashboard fork, while an existing
+browser preference remains authoritative. Configuration no longer contains a
+duplicate version/lineage footer, and the public documentation presents PARTY
+as a stable subscription-and-link-first product. The profile merger module uses
+the PARTY repository namespace so build output no longer reports an unrelated
+source module path.
 
 A release is published only after:
 

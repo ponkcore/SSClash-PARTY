@@ -8,6 +8,40 @@
 
 view_ssclash_utils.bumpRpcTimeout();
 
+const PARTY_UPDATE_HELPER = '/usr/libexec/ssclash-party-update';
+const PARTY_RELEASES_URL = 'https://github.com/ponkcore/SSClash-PARTY/releases';
+
+async function callPartyUpdater(action) {
+    const result = await fs.exec(PARTY_UPDATE_HELPER, [ action ]);
+    const output = String(result && result.stdout || '').trim();
+    let status;
+    try {
+        status = JSON.parse(output);
+    } catch (_error) {
+        throw new Error(_('The PARTY updater returned an invalid status.'));
+    }
+    if (!status || status.ok !== true) {
+        throw new Error(_('The PARTY updater could not complete the request.'));
+    }
+    return status;
+}
+
+async function getPartyUpdateStatus() {
+    try {
+        return await callPartyUpdater('status');
+    } catch (_error) {
+        return {
+            ok: false,
+            phase: 'check_failed',
+            installed: _('Unknown'),
+            latest: '',
+            checked_at: 0,
+            started_at: 0,
+            finished_at: 0
+        };
+    }
+}
+
 // =============================================================================
 // SECTION: Network interface helpers
 // =============================================================================
@@ -649,6 +683,193 @@ function createKernelDownloadSection() {
 }
 
 // =============================================================================
+// SECTION: PARTY software updates
+// =============================================================================
+
+function createPartyUpdateSection(initialStatus) {
+    const container = E('div', { 'class': 'cbi-section' });
+    const installedValue = E('strong', {}, initialStatus.installed || _('Unknown'));
+    const latestValue = E('strong', {}, initialStatus.latest || _('Not checked'));
+    const stateValue = E('strong', {}, '');
+    const checkedValue = E('span', {}, '');
+    let polling = false;
+
+    const checkButton = E('button', {
+        'class': 'btn',
+        'type': 'button'
+    }, _('Check for updates'));
+    const updateButton = E('button', {
+        'class': 'btn cbi-button-positive',
+        'type': 'button',
+        'style': 'margin-left: 10px;',
+        'disabled': true
+    }, _('Install update'));
+
+    function phasePresentation(phase) {
+        switch (phase) {
+            case 'checking': return { text: _('Checking the stable channel…'), color: '#0066cc' };
+            case 'queued': return { text: _('Update queued…'), color: '#0066cc' };
+            case 'updating': return { text: _('Installing the verified update…'), color: '#0066cc' };
+            case 'update_available': return { text: _('Update available'), color: '#b45309' };
+            case 'up_to_date': return { text: _('Up to date'), color: '#198754' };
+            case 'ahead': return { text: _('Installed version is newer than the stable channel'), color: '#6f42c1' };
+            case 'success': return { text: _('Update installed successfully'), color: '#198754' };
+            case 'check_failed': return { text: _('Update check failed'), color: '#dc3545' };
+            case 'update_failed': return { text: _('Update failed; the previous installation was retained when possible'), color: '#dc3545' };
+            default: return { text: _('Not checked'), color: PANEL_MUTED_TEXT };
+        }
+    }
+
+    function formatTimestamp(seconds) {
+        if (!(Number(seconds) > 0)) return _('Never');
+        try {
+            return new Date(Number(seconds) * 1000).toLocaleString();
+        } catch (_error) {
+            return _('Unknown');
+        }
+    }
+
+    function renderStatus(status) {
+        const presentation = phasePresentation(status.phase);
+        installedValue.textContent = status.installed || _('Unknown');
+        latestValue.textContent = status.latest || _('Not checked');
+        stateValue.textContent = presentation.text;
+        stateValue.style.color = presentation.color;
+        checkedValue.textContent = formatTimestamp(status.checked_at);
+
+        const busy = [ 'checking', 'queued', 'updating' ].includes(status.phase);
+        checkButton.disabled = busy;
+        checkButton.textContent = status.phase === 'checking' ? _('Checking…') : _('Check for updates');
+        updateButton.disabled = status.phase !== 'update_available';
+        updateButton.textContent = status.phase === 'queued' || status.phase === 'updating'
+            ? _('Installing…') : _('Install update');
+    }
+
+    async function pollUntilFinished() {
+        if (polling) return;
+        polling = true;
+        const deadline = Date.now() + 10 * 60 * 1000;
+        try {
+            while (Date.now() < deadline) {
+                await new Promise(function(resolve) { window.setTimeout(resolve, 2000); });
+                let status;
+                try {
+                    status = await callPartyUpdater('status');
+                } catch (_error) {
+                    continue;
+                }
+                renderStatus(status);
+                if (![ 'checking', 'queued', 'updating' ].includes(status.phase)) {
+                    if (status.phase === 'success') {
+                        ui.addNotification(null, E('p', {}, _(
+                            'PARTY was updated successfully. Reloading LuCI with the new version…'
+                        )), 'info');
+                        window.setTimeout(function() { window.location.reload(); }, 2000);
+                    } else if (status.phase === 'check_failed') {
+                        ui.addNotification(null, E('p', {}, _(
+                            'The stable PARTY channel could not be checked. The installed version was not changed.'
+                        )), 'error');
+                    } else if (status.phase === 'update_failed') {
+                        ui.addNotification(null, E('p', {}, _(
+                            'The PARTY update did not complete. The active configuration was not intentionally changed.'
+                        )), 'error');
+                    }
+                    return;
+                }
+            }
+            ui.addNotification(null, E('p', {}, _(
+                'The update is taking longer than expected. You can safely reload this page and check its status again.'
+            )), 'warning');
+        } finally {
+            polling = false;
+        }
+    }
+
+    checkButton.addEventListener('click', async function() {
+        checkButton.disabled = true;
+        stateValue.textContent = _('Checking the stable channel…');
+        stateValue.style.color = '#0066cc';
+        try {
+            const status = await callPartyUpdater('check');
+            renderStatus(status);
+            if ([ 'checking', 'queued', 'updating' ].includes(status.phase)) {
+                pollUntilFinished();
+            }
+        } catch (error) {
+            renderStatus(await getPartyUpdateStatus());
+            ui.addNotification(null, E('p', {}, _(
+                'Could not check the stable PARTY channel: %s'
+            ).format(error.message)), 'error');
+        }
+    });
+
+    updateButton.addEventListener('click', async function() {
+        if (!window.confirm(_(
+            'Install the verified stable PARTY update now? LuCI and proxy services may restart briefly. Do not power off the router during the update.'
+        ))) return;
+
+        updateButton.disabled = true;
+        try {
+            const status = await callPartyUpdater('start');
+            renderStatus(status);
+            pollUntilFinished();
+        } catch (error) {
+            renderStatus(await getPartyUpdateStatus());
+            ui.addNotification(null, E('p', {}, _(
+                'Could not start the PARTY update: %s'
+            ).format(error.message)), 'error');
+        }
+    });
+
+    container.appendChild(E('h2', {}, _('PARTY Software Update')));
+    container.appendChild(E('p', { 'class': 'cbi-section-descr' }, [
+        _('Updates use the stable release channel and install only a checksum-verified package that exactly matches this OpenWrt release, target, architecture, and package format.'),
+        ' ',
+        E('a', {
+            'href': PARTY_RELEASES_URL,
+            'target': '_blank',
+            'rel': 'noopener'
+        }, _('Release notes'))
+    ]));
+    container.appendChild(E('div', {
+        'style': 'margin: 15px 0; padding: 12px; border: 1px solid ' + PANEL_BORDER + '; border-radius: 4px; background: ' + PANEL_CARD_BG + '; color: ' + PANEL_TEXT + ';'
+    }, [
+        E('div', {}, [ _('Installed version: '), installedValue ]),
+        E('div', { 'style': 'margin-top: 6px;' }, [ _('Latest stable version: '), latestValue ]),
+        E('div', { 'style': 'margin-top: 6px;' }, [ _('Status: '), stateValue ]),
+        E('div', { 'style': 'margin-top: 6px; color: ' + PANEL_MUTED_TEXT + ';' }, [ _('Last checked: '), checkedValue ])
+    ]));
+    container.appendChild(E('div', { 'style': 'margin: 15px 0; text-align: center;' }, [
+        checkButton,
+        updateButton
+    ]));
+    container.appendChild(E('div', {
+        'style': 'margin: 10px 0 20px 0; padding: 8px 12px; background: ' + PANEL_STATUS_WARN + '; border-left: 4px solid #ffc107; border-radius: 4px; font-size: 12px; color: ' + PANEL_STATUS_TEXT_WARN + ';'
+    }, _('The updater preserves PARTY configuration and the previous service state. Keep a current OpenWrt backup and do not interrupt power while a package is being installed.')));
+
+    renderStatus(initialStatus);
+    window.setTimeout(async function() {
+        const status = await getPartyUpdateStatus();
+        renderStatus(status);
+        if (status.phase === 'not_checked') {
+            try {
+                const checking = await callPartyUpdater('check');
+                renderStatus(checking);
+                if ([ 'checking', 'queued', 'updating' ].includes(checking.phase)) {
+                    pollUntilFinished();
+                }
+            } catch (_error) {
+                renderStatus(await getPartyUpdateStatus());
+            }
+        } else if ([ 'checking', 'queued', 'updating' ].includes(status.phase)) {
+            pollUntilFinished();
+        }
+    }, 100);
+
+    return container;
+}
+
+// =============================================================================
 // SECTION: UI component builders
 // =============================================================================
 
@@ -1132,12 +1353,13 @@ return view.extend({
         return Promise.all([
             getNetworkInterfaces(),
             loadSettings(),
-            view_ssclash_router.load()
+            view_ssclash_router.load(),
+            getPartyUpdateStatus()
         ]);
     },
 
     render: async function(data) {
-        const [interfaces, settings, routerData] = data;
+        const [interfaces, settings, routerData, partyUpdateStatus] = data;
 
         if (!view_ssclash_utils.isLightTheme()) {
             PANEL_TEXT = 'inherit';
@@ -1518,6 +1740,7 @@ return view.extend({
         }, 100);
 
         const routerIntegration = view_ssclash_router.render(routerData);
+        const partyUpdateSection = createPartyUpdateSection(partyUpdateStatus);
         const serviceSettingsHeading = E('div', {
             'class': 'cbi-section',
             'style': 'margin-top: 28px; padding-top: 18px; border-top: 1px solid ' + PANEL_BORDER + ';'
@@ -1530,6 +1753,7 @@ return view.extend({
 
         const view = E([
             routerIntegration,
+            partyUpdateSection,
             serviceSettingsHeading,
             modeSelector,
             autoDetectOptions,

@@ -34,6 +34,7 @@ base_environment=(
     SSCLASH_PARTY_TEST_MEMORY_KIB=524288
     SSCLASH_PARTY_TEST_OVERLAY_FREE_KIB=131072
     SSCLASH_PARTY_TEST_TMP_FREE_KIB=262144
+    SSCLASH_PARTY_CHANNEL=preview
     "SSCLASH_PARTY_TEST_MANIFEST=file://$manifest"
 )
 
@@ -87,6 +88,9 @@ assert_contains "$output" 'cannot be installed with opkg'
 output=$("${base_environment[@]}" sh "$installer" install --dry-run --yes 2>&1)
 assert_contains "$output" 'Dry run complete; no changes were made.'
 
+output=$("${base_environment[@]}" sh "$installer" check 2>&1)
+assert_contains "$output" 'SSCLASH_PARTY_UPDATE|none|4.7.0-party.5|update-available'
+
 api_payload="$temporary/api-payload"
 mkdir -p "$api_payload"
 cp "$manifest" "$api_payload/ssclash-party-preview-manifest"
@@ -104,6 +108,24 @@ output=$("${base_environment[@]}" \
     sh "$installer" doctor 2>&1)
 assert_contains "$output" '/v4.7.0-party.5/ssclash-party-preview-manifest'
 
+stable_manifest="$api_payload/ssclash-party-stable-manifest"
+sed 's/^manifest|1|preview|/manifest|1|stable|/' "$manifest" > "$stable_manifest"
+(
+    cd "$api_payload"
+    sha256sum ssclash-party-stable-manifest > \
+        ssclash-party-stable-manifest.sha256
+)
+printf '%s\n' \
+    '{"assets":[{"browser_download_url":"https://github.com/ponkcore/SSClash-PARTY/releases/download/v4.7.0-party.5/ssclash-party-stable-manifest"}]}' \
+    > "$api_payload/latest"
+output=$("${base_environment[@]}" \
+    SSCLASH_PARTY_CHANNEL=stable \
+    SSCLASH_PARTY_TEST_MANIFEST= \
+    SSCLASH_PARTY_TEST_PAYLOAD_DIR="$api_payload" \
+    sh "$installer" check 2>&1)
+assert_contains "$output" '/v4.7.0-party.5/ssclash-party-stable-manifest'
+assert_contains "$output" 'SSCLASH_PARTY_UPDATE|none|4.7.0-party.5|update-available'
+
 output=$("${base_environment[@]}" \
     SSCLASH_PARTY_TEST_INSTALLED_PACKAGES=luci-app-ssclash \
     SSCLASH_PARTY_TEST_CURRENT_PARTY_VERSION=4.7.0-party.5 \
@@ -114,6 +136,15 @@ output=$("${base_environment[@]}" \
     SSCLASH_PARTY_TEST_TMP_FREE_KIB=1024 \
     sh "$installer" install --yes 2>&1)
 assert_contains "$output" 'already installed; no changes are required.'
+
+output=$("${base_environment[@]}" \
+    SSCLASH_PARTY_TEST_INSTALLED_PACKAGES=luci-app-ssclash \
+    SSCLASH_PARTY_TEST_CURRENT_PARTY_VERSION=4.7.0-party.6 \
+    SSCLASH_PARTY_TEST_MERGER_PRESENT=1 \
+    SSCLASH_PARTY_TEST_CORE_PRESENT=1 \
+    "SSCLASH_PARTY_TEST_CORE_VERSION=Mihomo Meta v1.19.29" \
+    sh "$installer" install --yes 2>&1)
+assert_contains "$output" 'newer than this channel; no downgrade was performed.'
 
 tampered_manifest="$temporary/tampered.manifest"
 cp "$manifest" "$tampered_manifest"
@@ -174,9 +205,9 @@ assert_contains "$output" 'Invalid PARTY release tag in manifest'
 dist="$temporary/dist"
 mkdir -p "$dist"
 packages=(
-    luci-app-ssclash-4.7.0-r10-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk
-    luci-app-ssclash-4.7.0-r10-openwrt-25.12.5-x86-64-x86_64.apk
-    luci-app-ssclash_4.7.0-r10_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk
+    luci-app-ssclash-4.7.0-r11-openwrt-25.12.5-mediatek-filogic-aarch64_cortex-a53.apk
+    luci-app-ssclash-4.7.0-r11-openwrt-25.12.5-x86-64-x86_64.apk
+    luci-app-ssclash_4.7.0-r11_x86_64-openwrt-24.10.8-x86-64-x86_64.ipk
 )
 for package in "${packages[@]}"; do
     printf 'fixture for %s\n' "$package" > "$dist/$package"
@@ -187,12 +218,12 @@ for package in "${packages[@]}"; do
 done
 
 generated_manifest="$temporary/ssclash-party-preview-manifest"
-"$generator" "$dist" v4.7.0-party.8 preview "$generated_manifest"
+"$generator" "$dist" v4.7.0-party.9 preview "$generated_manifest"
 (
     cd "$temporary"
     sha256sum --check --strict ssclash-party-preview-manifest.sha256 >/dev/null
 )
-grep -Fq 'manifest|1|preview|v4.7.0-party.8|4.7.0-party.8' "$generated_manifest" || \
+grep -Fq 'manifest|1|preview|v4.7.0-party.9|4.7.0-party.9' "$generated_manifest" || \
     fail 'generated manifest metadata is wrong'
 [[ $(grep -c '^package|' "$generated_manifest") -eq 3 ]] || \
     fail 'generated manifest does not contain three packages'
@@ -203,7 +234,7 @@ bad_sidecar_dist="$temporary/bad-sidecar-dist"
 cp -R "$dist" "$bad_sidecar_dist"
 printf '%s\n' 'unexpected second record' >> \
     "$bad_sidecar_dist/${packages[0]}.sha256"
-if "$generator" "$bad_sidecar_dist" v4.7.0-party.8 preview \
+if "$generator" "$bad_sidecar_dist" v4.7.0-party.9 preview \
     "$temporary/bad-sidecar.manifest" >/dev/null 2>&1; then
     fail 'manifest generator accepted a multi-record package sidecar'
 fi
@@ -265,7 +296,7 @@ done
 mkdir -p \
     "$SSCLASH_PARTY_ROOT/usr/share/ssclash-party" \
     "$SSCLASH_PARTY_ROOT/usr/bin"
-printf '%s\n' '4.7.0-party.8' > \
+printf '%s\n' '4.7.0-party.9' > \
     "$SSCLASH_PARTY_ROOT/usr/share/ssclash-party/VERSION"
 cat > "$SSCLASH_PARTY_ROOT/usr/bin/ssclash-profile-merge" <<'MERGER'
 #!/bin/sh
@@ -288,6 +319,7 @@ if ! output=$(env PATH="$fake_bin:$PATH" \
     SSCLASH_PARTY_TEST_MEMORY_KIB=524288 \
     SSCLASH_PARTY_TEST_OVERLAY_FREE_KIB=131072 \
     SSCLASH_PARTY_TEST_TMP_FREE_KIB=262144 \
+    SSCLASH_PARTY_CHANNEL=preview \
     "SSCLASH_PARTY_TEST_MANIFEST=file://$install_manifest" \
     SSCLASH_PARTY_TEST_PAYLOAD_DIR="$payload_dir" \
     SSCLASH_PARTY_TEST_COMMAND_LOG="$command_log" \

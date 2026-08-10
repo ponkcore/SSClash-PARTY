@@ -6,7 +6,7 @@
 # match from a verified PARTY manifest. It never flashes firmware, removes a
 # competing proxy stack, or starts Clash on a first installation.
 
-INSTALLER_VERSION="1.0.0-preview.1"
+INSTALLER_VERSION="1.0.0"
 PARTY_REPOSITORY="ponkcore/SSClash-PARTY"
 PARTY_REPOSITORY_URL="https://github.com/${PARTY_REPOSITORY}"
 PARTY_API_URL="https://api.github.com/repos/${PARTY_REPOSITORY}"
@@ -14,11 +14,11 @@ PARTY_RAW_URL="${SSCLASH_PARTY_RAW_URL:-https://raw.githubusercontent.com/${PART
 MIHOMO_REPOSITORY_URL="https://github.com/MetaCubeX/mihomo"
 
 COMMAND="install"
-CHANNEL="preview"
+CHANNEL="${SSCLASH_PARTY_CHANNEL:-stable}"
 ASSUME_YES=0
 DRY_RUN=0
 NO_CORE=0
-ALLOW_UPSTREAM_MIGRATION=0
+ALLOW_PACKAGE_MIGRATION=0
 MUTATION_STARTED=0
 WORK_DIR=""
 RECOVERY_ARCHIVE=""
@@ -70,12 +70,14 @@ usage() {
 SSClash PARTY safe installer for OpenWrt
 
 Usage:
-  sh install-ssclash.sh doctor [--channel preview|stable]
+  sh install-ssclash.sh doctor [--channel stable|preview]
+  sh install-ssclash.sh check [--channel stable|preview]
   sh install-ssclash.sh install [options]
   sh install-ssclash.sh upgrade [options]
 
 Commands:
   doctor     Read-only compatibility and conflict check.
+  check      Read-only check with a final machine-readable update record.
   install    Install PARTY, or safely update an existing installation.
   upgrade    Require an existing PARTY installation, then update it.
 
@@ -83,8 +85,8 @@ Options:
   --yes                       Do not ask for the final confirmation.
   --dry-run                   Print the installation plan without changing it.
   --no-core                   Do not install Mihomo when it is missing.
-  --allow-upstream-migration  Permit unattended replacement of upstream SSClash.
-  --channel NAME              Select preview or stable (default: preview).
+  --allow-package-migration   Permit unattended replacement of a non-PARTY package.
+  --channel NAME              Select stable or preview (default: stable).
   --help                      Show this help.
 
 The installer never flashes OpenWrt and never removes competing proxy tools.
@@ -134,10 +136,31 @@ is_safe_asset_name() {
     esac
 }
 
+is_party_version() {
+    printf '%s\n' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)*-party\.[0-9]+$'
+}
+
+party_version_compare() {
+    awk -v left="$1" -v right="$2" 'BEGIN {
+        sub(/-party[.]/, ".", left)
+        sub(/-party[.]/, ".", right)
+        left_count = split(left, left_parts, ".")
+        right_count = split(right, right_parts, ".")
+        count = left_count > right_count ? left_count : right_count
+        for (part_index = 1; part_index <= count; part_index++) {
+            left_value = part_index <= left_count ? left_parts[part_index] + 0 : 0
+            right_value = part_index <= right_count ? right_parts[part_index] + 0 : 0
+            if (left_value < right_value) { print -1; exit }
+            if (left_value > right_value) { print 1; exit }
+        }
+        print 0
+    }'
+}
+
 parse_arguments() {
     if [ "$#" -gt 0 ]; then
         case "$1" in
-            doctor|install|upgrade)
+            doctor|check|install|upgrade)
                 COMMAND="$1"
                 shift
                 ;;
@@ -155,8 +178,8 @@ parse_arguments() {
             --no-core)
                 NO_CORE=1
                 ;;
-            --allow-upstream-migration)
-                ALLOW_UPSTREAM_MIGRATION=1
+            --allow-package-migration)
+                ALLOW_PACKAGE_MIGRATION=1
                 ;;
             --channel)
                 shift
@@ -386,7 +409,7 @@ print_system_summary() {
     if [ -n "$CURRENT_PARTY_VERSION" ]; then
         info "Installed PARTY:${CURRENT_PARTY_VERSION}"
     elif package_is_installed luci-app-ssclash; then
-        info 'Installed PARTY:no (upstream SSClash package detected)'
+        info 'Installed PARTY:no (a non-PARTY package is installed)'
     else
         info 'Installed PARTY:no'
     fi
@@ -684,8 +707,18 @@ calculate_plan() {
     package_is_installed luci-app-ssclash && HAS_SSCLASH=1
 
     PACKAGE_NEEDED=1
-    if [ "$CURRENT_PARTY_VERSION" = "$MANIFEST_PARTY_VERSION" ] && [ "$MERGER_PRESENT" -eq 1 ]; then
-        PACKAGE_NEEDED=0
+    RELEASE_STATUS=update-available
+    if [ -n "$CURRENT_PARTY_VERSION" ]; then
+        is_party_version "$CURRENT_PARTY_VERSION" ||
+            die 'The installed PARTY version marker is invalid'
+        version_comparison=$(party_version_compare "$CURRENT_PARTY_VERSION" "$MANIFEST_PARTY_VERSION")
+        if [ "$version_comparison" -eq 0 ] && [ "$MERGER_PRESENT" -eq 1 ]; then
+            PACKAGE_NEEDED=0
+            RELEASE_STATUS=up-to-date
+        elif [ "$version_comparison" -gt 0 ]; then
+            PACKAGE_NEEDED=0
+            RELEASE_STATUS=installed-newer
+        fi
     fi
 
     CORE_NEEDED=0
@@ -693,9 +726,9 @@ calculate_plan() {
         CORE_NEEDED=1
     fi
 
-    UPSTREAM_MIGRATION=0
+    PACKAGE_MIGRATION=0
     if [ "$HAS_SSCLASH" -eq 1 ] && [ -z "$CURRENT_PARTY_VERSION" ] && [ "$PACKAGE_NEEDED" -eq 1 ]; then
-        UPSTREAM_MIGRATION=1
+        PACKAGE_MIGRATION=1
     fi
 
     if [ "$COMMAND" = 'upgrade' ] && [ -z "$CURRENT_PARTY_VERSION" ]; then
@@ -728,6 +761,7 @@ print_installation_plan() {
     separator
     info "Manifest:       ${MANIFEST_SOURCE}"
     info "PARTY release:  ${MANIFEST_TAG}"
+    info "Update status:  ${RELEASE_STATUS}"
     info "Package:        ${PACKAGE_ASSET}"
     info "Validation:     ${PACKAGE_VALIDATION}"
     if board_is_live_tested; then
@@ -738,6 +772,8 @@ print_installation_plan() {
     info "Mihomo target:  ${MIHOMO_ASSET}"
     if [ "$PACKAGE_NEEDED" -eq 1 ]; then
         info 'Package action: install or update PARTY'
+    elif [ "$RELEASE_STATUS" = 'installed-newer' ]; then
+        info 'Package action: keep the newer installed PARTY version'
     else
         info 'Package action: already at the selected PARTY release'
     fi
@@ -763,15 +799,23 @@ run_doctor() {
     log 'Doctor result: supported and safe to continue.'
 }
 
+run_update_check() {
+    run_doctor
+    printf 'SSCLASH_PARTY_UPDATE|%s|%s|%s\n' \
+        "${CURRENT_PARTY_VERSION:-none}" \
+        "$MANIFEST_PARTY_VERSION" \
+        "$RELEASE_STATUS"
+}
+
 confirm_installation() {
-    if [ "$UPSTREAM_MIGRATION" -eq 1 ]; then
-        warn 'An upstream SSClash package will be replaced in place by PARTY.'
-        if [ "$ASSUME_YES" -eq 1 ] && [ "$ALLOW_UPSTREAM_MIGRATION" -ne 1 ]; then
-            die 'Unattended upstream migration requires --allow-upstream-migration'
+    if [ "$PACKAGE_MIGRATION" -eq 1 ]; then
+        warn 'An existing non-PARTY package will be replaced in place.'
+        if [ "$ASSUME_YES" -eq 1 ] && [ "$ALLOW_PACKAGE_MIGRATION" -ne 1 ]; then
+            die 'Unattended package migration requires --allow-package-migration'
         fi
         if [ "$ASSUME_YES" -ne 1 ]; then
             [ -t 0 ] || die 'Interactive confirmation is unavailable; rerun with explicit migration flags'
-            printf 'Replace upstream SSClash with PARTY? [y/N] '
+            printf 'Replace the existing package with PARTY? [y/N] '
             read -r answer
             case "$answer" in y|Y|yes|YES) ;; *) die 'Installation cancelled' ;; esac
         fi
@@ -964,7 +1008,9 @@ postflight_check() {
 
     [ -r "$installed_version_file" ] || die 'The PARTY version marker is missing after installation'
     installed_version=$(sed -n '1p' "$installed_version_file")
-    [ "$installed_version" = "$MANIFEST_PARTY_VERSION" ] || die "Installed PARTY version ${installed_version} does not match ${MANIFEST_PARTY_VERSION}"
+    expected_version="$MANIFEST_PARTY_VERSION"
+    [ "$PACKAGE_NEEDED" -eq 1 ] || expected_version="$CURRENT_PARTY_VERSION"
+    [ "$installed_version" = "$expected_version" ] || die "Installed PARTY version ${installed_version} does not match ${expected_version}"
     [ -x "$installed_merger" ] || die 'The PARTY profile merger is missing after installation'
 
     if [ "$NO_CORE" -eq 0 ]; then
@@ -987,7 +1033,11 @@ run_install() {
     run_doctor
 
     if [ "$PACKAGE_NEEDED" -eq 0 ] && { [ "$CORE_NEEDED" -eq 0 ] || [ "$NO_CORE" -eq 1 ]; }; then
-        log 'The selected PARTY release is already installed; no changes are required.'
+        if [ "$RELEASE_STATUS" = 'installed-newer' ]; then
+            log 'The installed PARTY version is newer than this channel; no downgrade was performed.'
+        else
+            log 'The selected PARTY release is already installed; no changes are required.'
+        fi
         return 0
     fi
 
@@ -1018,11 +1068,12 @@ run_install() {
 
 parse_arguments "$@"
 
-if [ "$TESTING" != '1' ] && [ "$COMMAND" != 'doctor' ] && [ "$(id -u)" -ne 0 ]; then
+if [ "$TESTING" != '1' ] && [ "$COMMAND" != 'doctor' ] && [ "$COMMAND" != 'check' ] && [ "$(id -u)" -ne 0 ]; then
     die 'Installation must be run as root on the OpenWrt router'
 fi
 
 case "$COMMAND" in
     doctor) run_doctor ;;
+    check) run_update_check ;;
     install|upgrade) run_install ;;
 esac

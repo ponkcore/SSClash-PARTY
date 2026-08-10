@@ -213,53 +213,6 @@ async function initializeAceEditor(content, readOnly) {
     });
 }
 
-// =============================================================================
-// SECTION: SSClash version / update footer helpers
-// =============================================================================
-
-// Keep in sync with the PARTY release tag.
-const SSCLASH_VERSION = '4.7.0-party.8';
-
-const SSCLASH_REPO = 'ponkcore/SSClash-PARTY';
-const SSCLASH_RELEASES_URL = 'https://github.com/' + SSCLASH_REPO + '/releases';
-const SSCLASH_RELEASES_API = 'https://api.github.com/repos/' + SSCLASH_REPO + '/releases?per_page=20';
-const SSCLASH_MAINTAINER_URL = 'https://github.com/ponkcore';
-const SSCLASH_UPSTREAM_URL = 'https://github.com/zerolabnet/SSClash';
-const SSCLASH_AUTHOR_URL  = 'https://zerolab.net';
-const SSCLASH_DONATE_URL  = 'https://zerolab.net/donate/';
-
-function parseSemver(s) {
-    const m = (s || '').match(/^v?(\d+)\.(\d+)\.(\d+)(?:-party\.(\d+))?$/i);
-    return m ? [+m[1], +m[2], +m[3], +(m[4] || 0)] : null;
-}
-
-function cmpSemver(a, b) {
-    const pa = parseSemver(a), pb = parseSemver(b);
-    if (!pa || !pb) return 0;
-    for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
-    return 0;
-}
-
-async function getLatestSSClashRelease() {
-    try {
-        const resp = await fetch(SSCLASH_RELEASES_API);
-        if (!resp.ok) return null;
-        const releases = await resp.json();
-        if (!Array.isArray(releases)) return null;
-        const candidates = releases.filter(function(release) {
-            return release && !release.draft && parseSemver(release.tag_name);
-        });
-        candidates.sort(function(a, b) {
-            return cmpSemver(b.tag_name, a.tag_name);
-        });
-        const d = candidates[0];
-        if (!d) return null;
-        return { version: d.tag_name, url: d.html_url || SSCLASH_RELEASES_URL };
-    } catch (_e) {
-        return null;
-    }
-}
-
 return view.extend({
     load: function() {
         return Promise.all([
@@ -1431,31 +1384,6 @@ return view.extend({
             if (!splitContainer.contains(ev.target)) splitMenu.style.display = 'none';
         });
 
-        const dot = () => E('span', { 'style': 'margin: 0 6px; opacity: 0.35;' }, '\u00B7');
-
-        const versionFooter = E('div', {
-            'id': 'ssclash-version-footer',
-            'style': 'margin-top: 20px; padding: 10px 0; border-top: 1px solid rgba(127,127,127,0.15); text-align: center; font-size: 11px; color: #999;'
-        }, [
-            E('span', {}, 'SSClash PARTY ' + SSCLASH_VERSION),
-            dot(),
-            E('span', {}, [
-                'downstream by ',
-                E('a', { 'href': SSCLASH_MAINTAINER_URL, 'target': '_blank', 'rel': 'noopener' }, 'ponkcore')
-            ]),
-            dot(),
-            E('span', {}, [
-                'based on ',
-                E('a', { 'href': SSCLASH_UPSTREAM_URL, 'target': '_blank', 'rel': 'noopener' }, 'SSClash'),
-                ' by ',
-                E('a', { 'href': SSCLASH_AUTHOR_URL, 'target': '_blank', 'rel': 'noopener' }, 'ZeroChaos')
-            ]),
-            dot(),
-            E('a', { 'href': SSCLASH_DONATE_URL, 'target': '_blank', 'rel': 'noopener' }, _('Donate')),
-            dot(),
-            E('span', { 'id': 'ssclash-update-status' }, '\u2026')
-        ]);
-
         const view = E([
             E('div', {
                 'style': 'margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
@@ -1493,33 +1421,10 @@ return view.extend({
                     'title': _('Save and validate the YAML without starting or reloading the Clash service.')
                 }, _('Save & Validate only')),
                 splitContainer
-            ])),
-            versionFooter
+            ]))
         ]);
 
         initializeAceEditor(config, sourceModeSelect.value !== 'manual').then(updateSourceVisibility);
-
-        (async function updateVersionFooter() {
-            const status = view.querySelector('#ssclash-update-status');
-            if (!status) return;
-
-            const latest = await getLatestSSClashRelease();
-            if (!latest) {
-                status.textContent = _('update check failed');
-                return;
-            }
-
-            if (cmpSemver(latest.version, SSCLASH_VERSION) > 0) {
-                status.textContent = '';
-                status.appendChild(E('a', {
-                    'href': latest.url,
-                    'target': '_blank',
-                    'rel': 'noopener'
-                }, latest.version + ' \u2191'));
-            } else {
-                status.textContent = '\u2713';
-            }
-        })();
 
         return view;
     },

@@ -642,3 +642,97 @@ msgstr "Поддержать"
 msgid "Support the author"
 msgstr "Поддержать автора"
 
+### PARTY software updates ###
+
+msgid "The PARTY updater returned an invalid status."
+msgstr "Модуль обновления PARTY вернул некорректный статус."
+
+msgid "The PARTY updater could not complete the request."
+msgstr "Модуль обновления PARTY не смог выполнить запрос."
+
+msgid "Unknown"
+msgstr "Неизвестно"
+
+msgid "Not checked"
+msgstr "Не проверялось"
+
+msgid "Check for updates"
+msgstr "Проверить обновления"
+
+msgid "Install update"
+msgstr "Установить обновление"
+
+msgid "Checking the stable channel…"
+msgstr "Проверка стабильного канала…"
+
+msgid "Update queued…"
+msgstr "Обновление поставлено в очередь…"
+
+msgid "Installing the verified update…"
+msgstr "Установка проверенного обновления…"
+
+msgid "Update available"
+msgstr "Доступно обновление"
+
+msgid "Installed version is newer than the stable channel"
+msgstr "Установленная версия новее версии в стабильном канале"
+
+msgid "Update installed successfully"
+msgstr "Обновление успешно установлено"
+
+msgid "Update failed; the previous installation was retained when possible"
+msgstr "Обновление не удалось; предыдущая установка сохранена, где это было возможно"
+
+msgid "Never"
+msgstr "Никогда"
+
+msgid "Checking…"
+msgstr "Проверка…"
+
+msgid "Installing…"
+msgstr "Установка…"
+
+msgid "PARTY was updated successfully. Reloading LuCI with the new version…"
+msgstr "PARTY успешно обновлён. LuCI перезагружается с новой версией…"
+
+msgid "The PARTY update did not complete. The active configuration was not intentionally changed."
+msgstr "Обновление PARTY не завершилось. Активная конфигурация намеренно не изменялась."
+
+msgid "The stable PARTY channel could not be checked. The installed version was not changed."
+msgstr "Не удалось проверить стабильный канал PARTY. Установленная версия не изменялась."
+
+msgid "The update is taking longer than expected. You can safely reload this page and check its status again."
+msgstr "Обновление занимает больше времени, чем ожидалось. Можно безопасно перезагрузить страницу и снова проверить статус."
+
+msgid "Could not check the stable PARTY channel: %s"
+msgstr "Не удалось проверить стабильный канал PARTY: %s"
+
+msgid "Install the verified stable PARTY update now? LuCI and proxy services may restart briefly. Do not power off the router during the update."
+msgstr "Установить проверенное стабильное обновление PARTY? LuCI и прокси-сервисы могут ненадолго перезапуститься. Не отключайте питание роутера во время обновления."
+
+msgid "Could not start the PARTY update: %s"
+msgstr "Не удалось запустить обновление PARTY: %s"
+
+msgid "PARTY Software Update"
+msgstr "Обновление PARTY"
+
+msgid "Updates use the stable release channel and install only a checksum-verified package that exactly matches this OpenWrt release, target, architecture, and package format."
+msgstr "Обновления используют стабильный канал и устанавливают только пакет с проверенной контрольной суммой, который точно соответствует версии OpenWrt, target, архитектуре и формату пакетов."
+
+msgid "Release notes"
+msgstr "Описание релиза"
+
+msgid "Installed version: "
+msgstr "Установленная версия: "
+
+msgid "Latest stable version: "
+msgstr "Последняя стабильная версия: "
+
+msgid "Status: "
+msgstr "Статус: "
+
+msgid "Last checked: "
+msgstr "Последняя проверка: "
+
+msgid "The updater preserves PARTY configuration and the previous service state. Keep a current OpenWrt backup and do not interrupt power while a package is being installed."
+msgstr "Модуль обновления сохраняет конфигурацию PARTY и прежнее состояние сервисов. Храните актуальную резервную копию OpenWrt и не отключайте питание во время установки пакета."
