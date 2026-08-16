@@ -432,7 +432,7 @@ jobs:
           test "$(stat -c '%a' "$profile_config")" = 600
           test "$(stat -c '%a' "$links_file")" = 600
           test "$(stat -c '%a' "$active_config")" = 600
-          test "$(cat "$party_version")" = 4.7.0-party.10
+          test "$(cat "$party_version")" = 4.7.0-party.11
           settings_view="$inspect_root/www/luci-static/resources/view/ssclash/settings.js"
           grep -q 'Software Updates' "$settings_view"
           grep -q 'createPartyUpdateCard' "$settings_view"

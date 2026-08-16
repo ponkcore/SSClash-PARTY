@@ -295,6 +295,9 @@ clash-init)
         grep -qx 'running=1' "${FAKE_SERVICE_STATE:?}"
         ;;
     start)
+        if [[ -n "${FAKE_CLASH_START_DELAY_SECONDS:-}" ]]; then
+            sleep "$FAKE_CLASH_START_DELAY_SECONDS"
+        fi
         sed -i 's/^running=.*/running=1/' "$FAKE_SERVICE_STATE"
         ;;
     stop)
@@ -312,7 +315,33 @@ clash-init)
     esac
     ;;
 
-clash-rules|logger|nslookup)
+logger)
+    if [[ -n "${FAKE_LOG_FILE:-}" ]]; then
+        printf '%s\n' "$*" >> "$FAKE_LOG_FILE"
+    fi
+    ;;
+
+nslookup)
+    if [[ -n "${FAKE_NSLOOKUP_PID_FILE:-}" ]]; then
+        printf '%s\n' "$$" >> "$FAKE_NSLOOKUP_PID_FILE"
+    fi
+    case "${FAKE_NSLOOKUP_MODE:-pass}" in
+    pass)
+        printf 'Name: %s\nAddress: 192.0.2.1\n' "${1:-example.invalid}"
+        ;;
+    fail)
+        exit 1
+        ;;
+    hang)
+        exec sleep "${FAKE_NSLOOKUP_HANG_SECONDS:-30}"
+        ;;
+    *)
+        exit 2
+        ;;
+    esac
+    ;;
+
+clash-rules)
     ;;
 
 *)

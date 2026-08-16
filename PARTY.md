@@ -231,6 +231,21 @@ cards retain independent version checks and update actions, while making the
 component boundary explicit and keeping all software maintenance in one
 place.
 
+The bounded runtime-watchdog release is:
+
+```text
+Git tag:         v4.7.0-party.11
+OpenWrt package: luci-app-ssclash 4.7.0-r13
+```
+
+It gives cold service initialization and the post-start health checks separate
+time budgets, bounds every DNS lookup, and clamps controller and proxy probes
+to the remaining monotonic health deadline. A genuine health failure still
+stops and disables Clash to restore direct networking, while fixed-stage logs
+identify whether service, controller, DNS, or proxy validation failed. The
+guarded-start command now also preserves its nonzero exit status after
+printing structured status output.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;

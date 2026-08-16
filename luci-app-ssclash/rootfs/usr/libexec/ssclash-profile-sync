@@ -32,6 +32,7 @@ STATUS_SOURCE_MODE=subscription
 STATUS_HWID_USED=false
 STATUS_PROFILE_ID=
 PROFILE_SECTION=
+HEALTH_FAILURE_STAGE=service
 
 mkdir -p "$STATE_DIR"
 chmod 700 "$STATE_DIR" 2>/dev/null || true
@@ -43,6 +44,48 @@ log_message() {
 now_epoch() {
 	date +%s
 }
+
+monotonic_seconds() {
+	local uptime
+	if [ -r /proc/uptime ]; then
+		IFS=' ' read -r uptime < /proc/uptime || uptime=
+		uptime="${uptime%%.*}"
+		case "$uptime" in
+			''|*[!0-9]*) ;;
+			*)
+				printf '%s\n' "$uptime"
+				return 0
+				;;
+		esac
+	fi
+	now_epoch
+}
+
+validated_seconds() {
+	local value="$1"
+	local fallback="$2"
+	local minimum="$3"
+	local maximum="$4"
+	case "$value" in
+		''|*[!0-9]*|?????*)
+			printf '%s\n' "$fallback"
+			return 0
+			;;
+	esac
+	if [ "$value" -lt "$minimum" ] || [ "$value" -gt "$maximum" ]; then
+		printf '%s\n' "$fallback"
+	else
+		printf '%s\n' "$value"
+	fi
+}
+
+HEALTH_TIMEOUT_SECONDS="$(validated_seconds "${SSCLASH_HEALTH_TIMEOUT_SECONDS:-45}" 45 1 300)"
+DNS_PROBE_TIMEOUT_SECONDS="$(validated_seconds "${SSCLASH_DNS_PROBE_TIMEOUT_SECONDS:-7}" 7 1 30)"
+CONTROLLER_PROBE_TIMEOUT_SECONDS="$(validated_seconds "${SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS:-8}" 8 1 30)"
+PROXY_PROBE_TIMEOUT_SECONDS="$(validated_seconds "${SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS:-12}" 12 1 60)"
+STARTUP_GRACE_SECONDS="$(validated_seconds "${SSCLASH_STARTUP_GRACE_SECONDS:-90}" 90 1 600)"
+WATCHDOG_MARGIN_SECONDS="$(validated_seconds "${SSCLASH_WATCHDOG_MARGIN_SECONDS:-15}" 15 1 120)"
+WATCHDOG_TIMEOUT_SECONDS=$((STARTUP_GRACE_SECONDS + HEALTH_TIMEOUT_SECONDS + WATCHDOG_MARGIN_SECONDS))
 
 write_status() {
 	local state="$1"
@@ -592,12 +635,88 @@ EOF
 	return 1
 }
 
+remaining_probe_timeout() {
+	local configured="$1"
+	local deadline="$2"
+	local margin="${3:-0}"
+	local remaining
+	remaining=$((deadline - $(monotonic_seconds) - margin))
+	[ "$remaining" -gt 0 ] || return 1
+	if [ "$configured" -lt "$remaining" ]; then
+		printf '%s\n' "$configured"
+	else
+		printf '%s\n' "$remaining"
+	fi
+}
+
+# Run one leaf command with a hard timeout without requiring GNU timeout.
+# The caller owns the output file. Only the direct child is signalled, so this
+# helper must not be used with shell wrappers that leave descendant processes.
+run_leaf_with_timeout() {
+	local timeout_seconds="$1"
+	local output_file="$2"
+	shift 2
+	[ "$#" -gt 0 ] || return 1
+	case "$timeout_seconds" in
+		''|*[!0-9]*|0) return 1 ;;
+	esac
+
+	: > "$output_file" || return 1
+	"$@" > "$output_file" 2>&1 &
+	local pid=$!
+	local waited=0
+	local return_code
+
+	while kill -0 "$pid" 2>/dev/null; do
+		if [ "$waited" -ge "$timeout_seconds" ]; then
+			kill -TERM "$pid" 2>/dev/null || true
+			sleep 1
+			kill -KILL "$pid" 2>/dev/null || true
+			wait "$pid" 2>/dev/null || true
+			return 124
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	wait "$pid"
+	return_code=$?
+	return "$return_code"
+}
+
+set_health_failure_stage() {
+	local work_dir="$1"
+	local stage="$2"
+	case "$stage" in
+		service|controller|dns|proxy) ;;
+		*) stage=service ;;
+	esac
+	HEALTH_FAILURE_STAGE="$stage"
+	printf '%s\n' "$stage" > "$work_dir/health-failure-stage"
+}
+
+read_health_failure_stage() {
+	local work_dir="$1"
+	local stage
+	stage="$(sed -n '1p' "$work_dir/health-failure-stage" 2>/dev/null || true)"
+	case "$stage" in
+		service|controller|dns|proxy) printf '%s\n' "$stage" ;;
+		*) printf '%s\n' service ;;
+	esac
+}
+
 controller_request() {
 	local method="$1"
 	local endpoint="$2"
 	local output="$3"
 	local data="${4:-}"
-	local controller secret header_file http_code curl_status
+	local max_time="${5:-15}"
+	local controller secret header_file http_code curl_status connect_timeout
+	case "$max_time" in
+		''|*[!0-9]*|0) max_time=15 ;;
+	esac
+	connect_timeout=3
+	[ "$max_time" -lt "$connect_timeout" ] && connect_timeout="$max_time"
 	controller="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
 	secret="$(yaml_scalar secret "$ACTIVE_CONFIG")"
 	[ -n "$controller" ] || return 1
@@ -610,7 +729,7 @@ controller_request() {
 	printf 'Authorization: Bearer %s\n' "$secret" > "$header_file" || return 1
 
 	if [ -n "$data" ]; then
-		http_code="$(curl -sS --connect-timeout 3 --max-time 15 \
+		http_code="$(curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
 			-o "$output" -w '%{http_code}' \
 			-X "$method" \
 			-H "@$header_file" \
@@ -619,7 +738,7 @@ controller_request() {
 			"http://$controller$endpoint")"
 		curl_status=$?
 	else
-		http_code="$(curl -sS --connect-timeout 3 --max-time 15 \
+		http_code="$(curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
 			-o "$output" -w '%{http_code}' \
 			-X "$method" \
 			-H "@$header_file" \
@@ -640,8 +759,9 @@ reload_running_core() {
 
 controller_healthy() {
 	local work_dir="$1"
+	local max_time="${2:-$CONTROLLER_PROBE_TIMEOUT_SECONDS}"
 	local http_code
-	http_code="$(controller_request GET '/version' "$work_dir/version-response" 2>"$work_dir/version-error")" || return 1
+	http_code="$(controller_request GET '/version' "$work_dir/version-response" '' "$max_time" 2>"$work_dir/version-error")" || return 1
 	[ "$http_code" = "200" ]
 }
 
@@ -696,8 +816,9 @@ urlencode_path_component() {
 
 proxy_path_healthy() {
 	local work_dir="$1"
+	local deadline="$2"
 	local controller secret group encoded_group http_code header_file
-	local primary_url secondary_url probe_url
+	local primary_url secondary_url probe_url max_time delay_timeout_ms
 	controller="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
 	secret="$(yaml_scalar secret "$ACTIVE_CONFIG")"
 	group="$(profile_proxy_group)"
@@ -715,12 +836,15 @@ proxy_path_healthy() {
 
 	for probe_url in "$primary_url" "$secondary_url"; do
 		validate_url "$probe_url" || continue
-		http_code="$(curl -sS --connect-timeout 3 --max-time 12 \
+		max_time="$(remaining_probe_timeout "$PROXY_PROBE_TIMEOUT_SECONDS" "$deadline")" || break
+		delay_timeout_ms=$((max_time * 1000 - 1000))
+		[ "$delay_timeout_ms" -ge 1000 ] || delay_timeout_ms=1000
+		http_code="$(curl -sS --connect-timeout 3 --max-time "$max_time" \
 			-o "$work_dir/proxy-delay-response" -w '%{http_code}' \
 			-H "@$header_file" \
 			-G \
 			--data-urlencode "url=$probe_url" \
-			--data-urlencode 'timeout=7000' \
+			--data-urlencode "timeout=$delay_timeout_ms" \
 			--data-urlencode 'expected=200/204' \
 			"http://$controller/proxies/$encoded_group/delay" 2>"$work_dir/proxy-delay-error")" || continue
 		if [ "$http_code" = "200" ]; then
@@ -734,21 +858,60 @@ proxy_path_healthy() {
 
 runtime_healthy() {
 	local work_dir="$1"
-	local timeout_seconds="${2:-45}"
-	local deadline
-	deadline=$(( $(now_epoch) + timeout_seconds ))
+	local timeout_seconds="${2:-$HEALTH_TIMEOUT_SECONDS}"
+	local health_started deadline stage_started probe_timeout dns_ok domain
+	local service_duration controller_duration dns_duration proxy_duration total_duration
+	health_started="$(monotonic_seconds)"
+	deadline=$((health_started + timeout_seconds))
+	set_health_failure_stage "$work_dir" service
 
-	while [ "$(now_epoch)" -lt "$deadline" ]; do
-		if is_clash_running && controller_healthy "$work_dir"; then
-			if nslookup openwrt.org 127.0.0.1 >"$work_dir/dns-check" 2>&1 ||
-				nslookup cloudflare.com 127.0.0.1 >"$work_dir/dns-check" 2>&1; then
-				if proxy_path_healthy "$work_dir"; then
-					return 0
-				fi
-			fi
+	while [ "$(monotonic_seconds)" -lt "$deadline" ]; do
+		stage_started="$(monotonic_seconds)"
+		if ! is_clash_running; then
+			set_health_failure_stage "$work_dir" service
+			sleep 1
+			continue
 		fi
-		sleep 1
+		service_duration=$(( $(monotonic_seconds) - stage_started ))
+
+		probe_timeout="$(remaining_probe_timeout "$CONTROLLER_PROBE_TIMEOUT_SECONDS" "$deadline")" || break
+		stage_started="$(monotonic_seconds)"
+		if ! controller_healthy "$work_dir" "$probe_timeout"; then
+			set_health_failure_stage "$work_dir" controller
+			[ "$(monotonic_seconds)" -lt "$deadline" ] && sleep 1
+			continue
+		fi
+		controller_duration=$(( $(monotonic_seconds) - stage_started ))
+
+		stage_started="$(monotonic_seconds)"
+		dns_ok=0
+		for domain in openwrt.org cloudflare.com; do
+			probe_timeout="$(remaining_probe_timeout "$DNS_PROBE_TIMEOUT_SECONDS" "$deadline" 1)" || break
+			if run_leaf_with_timeout "$probe_timeout" "$work_dir/dns-check" nslookup "$domain" 127.0.0.1; then
+				dns_ok=1
+				break
+			fi
+		done
+		if [ "$dns_ok" -ne 1 ]; then
+			set_health_failure_stage "$work_dir" dns
+			[ "$(monotonic_seconds)" -lt "$deadline" ] && sleep 1
+			continue
+		fi
+		dns_duration=$(( $(monotonic_seconds) - stage_started ))
+
+		stage_started="$(monotonic_seconds)"
+		if ! proxy_path_healthy "$work_dir" "$deadline"; then
+			set_health_failure_stage "$work_dir" proxy
+			[ "$(monotonic_seconds)" -lt "$deadline" ] && sleep 1
+			continue
+		fi
+		proxy_duration=$(( $(monotonic_seconds) - stage_started ))
+		total_duration=$(( $(monotonic_seconds) - health_started ))
+		log_message "Runtime health checks passed in ${total_duration}s (service=${service_duration}s controller=${controller_duration}s dns=${dns_duration}s proxy=${proxy_duration}s)."
+		return 0
 	done
+	total_duration=$(( $(monotonic_seconds) - health_started ))
+	log_message "Runtime health checks exhausted at stage ${HEALTH_FAILURE_STAGE} after ${total_duration}s."
 	return 1
 }
 
@@ -1012,11 +1175,14 @@ guarded_start() {
 	fi
 
 	local confirmed="$work_dir/start-confirmed"
-	local watchdog_pid
+	local watchdog_pid failure_stage
 	rm -f "$confirmed"
 
+	# The watchdog covers a cold service start, the bounded health window, and
+	# a cleanup margin. It must not consume the health window while the init
+	# script is still loading geodata and rebuilding router integration.
 	(
-		sleep 75
+		sleep "$WATCHDOG_TIMEOUT_SECONDS"
 		if [ ! -f "$confirmed" ]; then
 			"$CLASH_INIT" stop >/dev/null 2>&1 || true
 			"$CLASH_INIT" disable >/dev/null 2>&1 || true
@@ -1035,13 +1201,14 @@ guarded_start() {
 		return 1
 	fi
 
-	if ! runtime_healthy "$work_dir" 45; then
+	if ! runtime_healthy "$work_dir" "$HEALTH_TIMEOUT_SECONDS"; then
 		kill "$watchdog_pid" 2>/dev/null || true
 		wait "$watchdog_pid" 2>/dev/null || true
 		"$CLASH_INIT" stop >/dev/null 2>&1 || true
 		"$CLASH_INIT" disable >/dev/null 2>&1 || true
+		failure_stage="$(read_health_failure_stage "$work_dir")"
 		write_status error health_check_failed "SSClash health checks failed; direct networking was restored." null false
-		log_message "Guarded start failed health checks; SSClash was stopped."
+		log_message "Guarded start failed health stage ${failure_stage}; SSClash was stopped."
 		[ "$own_work_dir" -eq 1 ] && remove_work_dir "$work_dir"
 		return 1
 	fi
@@ -1598,8 +1765,13 @@ case "${1:-status}" in
 		chmod 700 "$work_dir"
 		CLEANUP_DIR="$work_dir"
 		trap cleanup_operation EXIT INT TERM
-		guarded_start "$work_dir"
-		print_status
+		if guarded_start "$work_dir"; then
+			print_status
+		else
+			result=$?
+			print_status
+			exit "$result"
+		fi
 		;;
 	daemon)
 		daemon_loop

@@ -79,6 +79,11 @@ run_action() {
     FAKE_CURL_SCENARIO="$scenario" \
     FAKE_FIXTURE_DIR="$fixture_dir" \
     FAKE_SERVICE_STATE="$case_root/service.state" \
+    FAKE_LOG_FILE="$case_root/events.log" \
+    FAKE_NSLOOKUP_MODE="${FAKE_NSLOOKUP_MODE:-pass}" \
+    FAKE_NSLOOKUP_HANG_SECONDS="${FAKE_NSLOOKUP_HANG_SECONDS:-30}" \
+    FAKE_NSLOOKUP_PID_FILE="$case_root/nslookup.pids" \
+    FAKE_CLASH_START_DELAY_SECONDS="${FAKE_CLASH_START_DELAY_SECONDS:-}" \
     SSCLASH_SELF="$helper" \
     SSCLASH_MERGER="$merger" \
     SSCLASH_CLASH="$fake_bin/clash" \
@@ -96,6 +101,12 @@ run_action() {
     SSCLASH_STATE_DIR="$case_root/state" \
     SSCLASH_LOCK_DIR="$case_root/sync.lock" \
     SSCLASH_SOURCE_HASH_FILE="$case_root/clash/source.sha256" \
+    SSCLASH_HEALTH_TIMEOUT_SECONDS="${SSCLASH_HEALTH_TIMEOUT_SECONDS:-45}" \
+    SSCLASH_DNS_PROBE_TIMEOUT_SECONDS="${SSCLASH_DNS_PROBE_TIMEOUT_SECONDS:-7}" \
+    SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS="${SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS:-8}" \
+    SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS="${SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS:-12}" \
+    SSCLASH_STARTUP_GRACE_SECONDS="${SSCLASH_STARTUP_GRACE_SECONDS:-90}" \
+    SSCLASH_WATCHDOG_MARGIN_SECONDS="${SSCLASH_WATCHDOG_MARGIN_SECONDS:-15}" \
         "$helper" "$@" > "$case_root/result.json"
 }
 
@@ -300,5 +311,51 @@ rollback_after_hash="$(sha256sum "$running_rollback_case/clash/config.yaml" | aw
 [[ "$(awk -F= '$1 == "ssclash_profile.main.active_profile" { print $2 }' "$running_rollback_case/config/ssclash_profile")" == default ]]
 grep -qx 'running=1' "$running_rollback_case/service.state"
 assert_json "$running_rollback_case/state/status.json" '.state == "error" and .code == "reload_failed" and .profile_id == "backup"'
+
+guarded_success_case="$(create_case guarded-success subscription auto)"
+guarded_success_started="$(date +%s)"
+FAKE_CLASH_START_DELAY_SECONDS=2 \
+SSCLASH_HEALTH_TIMEOUT_SECONDS=4 \
+SSCLASH_DNS_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_STARTUP_GRACE_SECONDS=3 \
+SSCLASH_WATCHDOG_MARGIN_SECONDS=2 \
+    run_action "$guarded_success_case" full start-guarded
+guarded_success_elapsed=$(( $(date +%s) - guarded_success_started ))
+[[ "$guarded_success_elapsed" -ge 2 && "$guarded_success_elapsed" -lt 9 ]]
+assert_json "$guarded_success_case/state/status.json" '.state == "success" and .code == "running"'
+grep -qx 'running=1' "$guarded_success_case/service.state"
+grep -qx 'enabled=1' "$guarded_success_case/service.state"
+grep -q 'Runtime health checks passed' "$guarded_success_case/events.log"
+
+guarded_dns_timeout_case="$(create_case guarded-dns-timeout subscription auto)"
+guarded_dns_started="$(date +%s)"
+if FAKE_NSLOOKUP_MODE=hang \
+    SSCLASH_HEALTH_TIMEOUT_SECONDS=3 \
+    SSCLASH_DNS_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_STARTUP_GRACE_SECONDS=2 \
+    SSCLASH_WATCHDOG_MARGIN_SECONDS=3 \
+        run_action "$guarded_dns_timeout_case" full start-guarded; then
+    printf 'A hanging DNS health probe unexpectedly succeeded.\n' >&2
+    sed -n '1,20p' "$guarded_dns_timeout_case/events.log" >&2 || true
+    sed -n '1,20p' "$guarded_dns_timeout_case/nslookup.pids" >&2 || true
+    exit 1
+fi
+guarded_dns_elapsed=$(( $(date +%s) - guarded_dns_started ))
+[[ "$guarded_dns_elapsed" -ge 2 && "$guarded_dns_elapsed" -lt 8 ]]
+assert_json "$guarded_dns_timeout_case/state/status.json" '.state == "error" and .code == "health_check_failed"'
+grep -qx 'running=0' "$guarded_dns_timeout_case/service.state"
+grep -qx 'enabled=0' "$guarded_dns_timeout_case/service.state"
+grep -q 'health checks exhausted at stage dns' "$guarded_dns_timeout_case/events.log"
+grep -q 'failed health stage dns' "$guarded_dns_timeout_case/events.log"
+while IFS= read -r nslookup_pid; do
+    if kill -0 "$nslookup_pid" 2>/dev/null; then
+        printf 'A timed-out DNS probe remains alive: %s\n' "$nslookup_pid" >&2
+        exit 1
+    fi
+done < "$guarded_dns_timeout_case/nslookup.pids"
 
 printf 'profile-sync integration tests passed\n'
