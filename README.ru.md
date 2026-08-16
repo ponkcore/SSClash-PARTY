@@ -244,7 +244,7 @@ marks, аутентификацию контроллера, DNS роутера, 
 ## Поддерживаемые пакеты
 
 Текущий стабильный релиз
-[`v4.7.0-party.10`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.10)
+[`v4.7.0-party.11`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.11)
 содержит следующие архитектурно-зависимые пакеты:
 
 | Версия OpenWrt | Target | Пакетная архитектура | Формат | Проверка |

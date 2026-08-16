@@ -235,7 +235,7 @@ stays hidden there. A user can still change this preference in Zashboard.
 ## Supported packages
 
 The current stable release,
-[`v4.7.0-party.10`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.10),
+[`v4.7.0-party.11`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.11),
 publishes these architecture-specific packages:
 
 | OpenWrt release | Target | Package architecture | Format | Validation |
