@@ -246,6 +246,20 @@ identify whether service, controller, DNS, or proxy validation failed. The
 guarded-start command now also preserves its nonzero exit status after
 printing structured status output.
 
+The controller-timeout repair release is:
+
+```text
+Git tag:         v4.7.0-party.12
+OpenWrt package: luci-app-ssclash 4.7.0-r14
+```
+
+It runs controller and proxy health-check curl calls as direct child processes
+under independent hard timeouts, captures status and errors in private files,
+and preserves the existing bounded DNS and monotonic health-deadline behavior.
+
+The release process remains gated by the complete validation and package matrix
+listed above.
+
 A release is published only after:
 
 - Go unit, race, vet, and lint checks pass;

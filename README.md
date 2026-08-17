@@ -235,12 +235,12 @@ stays hidden there. A user can still change this preference in Zashboard.
 ## Supported packages
 
 The current stable release,
-[`v4.7.0-party.11`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.11),
+[`v4.7.0-party.12`](https://github.com/ponkcore/SSClash-PARTY/releases/tag/v4.7.0-party.12),
 publishes these architecture-specific packages:
 
 | OpenWrt release | Target | Package architecture | Format | Validation |
 |---|---|---|---|---|
-| 25.12.5 | `mediatek/filogic` | `aarch64_cortex-a53` | APK | CI-built, package-inspected, and hardware-tested |
+| 25.12.5 | `mediatek/filogic` | `aarch64_cortex-a53` | APK | CI-built and hardware-tested |
 | 25.12.5 | `x86/64` | `x86_64` | APK | CI-built and package-inspected |
 | 24.10.8 | `x86/64` | `x86_64` | IPK | CI-built and package-inspected |
 

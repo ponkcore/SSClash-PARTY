@@ -107,6 +107,7 @@ run_action() {
     SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS="${SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS:-12}" \
     SSCLASH_STARTUP_GRACE_SECONDS="${SSCLASH_STARTUP_GRACE_SECONDS:-90}" \
     SSCLASH_WATCHDOG_MARGIN_SECONDS="${SSCLASH_WATCHDOG_MARGIN_SECONDS:-15}" \
+    FAKE_CONTROLLER_HANG_SECONDS="${FAKE_CONTROLLER_HANG_SECONDS:-}" \
         "$helper" "$@" > "$case_root/result.json"
 }
 
@@ -328,6 +329,26 @@ assert_json "$guarded_success_case/state/status.json" '.state == "success" and .
 grep -qx 'running=1' "$guarded_success_case/service.state"
 grep -qx 'enabled=1' "$guarded_success_case/service.state"
 grep -q 'Runtime health checks passed' "$guarded_success_case/events.log"
+guarded_controller_timeout_case="$(create_case guarded-controller-timeout subscription auto)"
+guarded_controller_started="$(date +%s)"
+if FAKE_CONTROLLER_HANG_SECONDS=30 \
+    SSCLASH_HEALTH_TIMEOUT_SECONDS=3 \
+    SSCLASH_DNS_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS=1 \
+    SSCLASH_STARTUP_GRACE_SECONDS=2 \
+    SSCLASH_WATCHDOG_MARGIN_SECONDS=3 \
+        run_action "$guarded_controller_timeout_case" full start-guarded; then
+    printf 'A hanging controller health probe unexpectedly succeeded.\n' >&2
+    exit 1
+fi
+guarded_controller_elapsed=$(( $(date +%s) - guarded_controller_started ))
+[[ "$guarded_controller_elapsed" -ge 2 && "$guarded_controller_elapsed" -lt 8 ]]
+assert_json "$guarded_controller_timeout_case/state/status.json" '.state == "error" and .code == "health_check_failed"'
+grep -qx 'running=0' "$guarded_controller_timeout_case/service.state"
+grep -qx 'enabled=0' "$guarded_controller_timeout_case/service.state"
+grep -q 'health checks exhausted at stage controller' "$guarded_controller_timeout_case/events.log"
+grep -q 'failed health stage controller' "$guarded_controller_timeout_case/events.log"
 
 guarded_dns_timeout_case="$(create_case guarded-dns-timeout subscription auto)"
 guarded_dns_started="$(date +%s)"

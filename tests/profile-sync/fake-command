@@ -182,6 +182,7 @@ curl)
     output_file=
     response_headers=
     request_headers=
+    request_url=
     while (($#)); do
         case "$1" in
         -o)
@@ -196,12 +197,19 @@ curl)
             if [[ "$2" == @* ]]; then request_headers="${2#@}"; fi
             shift 2
             ;;
+        http://*|https://*)
+            request_url="$1"
+            shift
+            ;;
         *)
             shift
             ;;
         esac
     done
     [[ -n "$output_file" && -n "$request_headers" ]]
+    if [[ -n "${FAKE_CONTROLLER_HANG_SECONDS:-}" && "$request_url" == */version ]]; then
+        exec sleep "$FAKE_CONTROLLER_HANG_SECONDS"
+    fi
 
     if [[ -z "$response_headers" ]]; then
         if [[ -n "${FAKE_CONTROLLER_FAIL_ONCE_FILE:-}" &&

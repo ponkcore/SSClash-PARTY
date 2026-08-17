@@ -664,23 +664,48 @@ run_leaf_with_timeout() {
 	: > "$output_file" || return 1
 	"$@" > "$output_file" 2>&1 &
 	local pid=$!
-	local waited=0
+	local watchdog_pid
 	local return_code
-
-	while kill -0 "$pid" 2>/dev/null; do
-		if [ "$waited" -ge "$timeout_seconds" ]; then
-			kill -TERM "$pid" 2>/dev/null || true
-			sleep 1
-			kill -KILL "$pid" 2>/dev/null || true
-			wait "$pid" 2>/dev/null || true
-			return 124
-		fi
+	(
+		sleep "$timeout_seconds"
+		kill -TERM "$pid" 2>/dev/null || exit 0
 		sleep 1
-		waited=$((waited + 1))
-	done
-
+		kill -KILL "$pid" 2>/dev/null || true
+	) &
+	watchdog_pid=$!
 	wait "$pid"
 	return_code=$?
+	kill "$watchdog_pid" 2>/dev/null || true
+	wait "$watchdog_pid" 2>/dev/null || true
+	return "$return_code"
+}
+
+run_leaf_with_timeout_capture() {
+	local timeout_seconds="$1"
+	local output_file="$2"
+	local error_file="$3"
+	shift 3
+	[ "$#" -gt 0 ] || return 1
+	case "$timeout_seconds" in
+		''|*[!0-9]*|0) return 1 ;;
+	esac
+	: > "$output_file" || return 1
+	: > "$error_file" || return 1
+	"$@" > "$output_file" 2>"$error_file" &
+	local pid=$!
+	local watchdog_pid
+	local return_code
+	(
+		sleep "$timeout_seconds"
+		kill -TERM "$pid" 2>/dev/null || exit 0
+		sleep 1
+		kill -KILL "$pid" 2>/dev/null || true
+	) &
+	watchdog_pid=$!
+	wait "$pid"
+	return_code=$?
+	kill "$watchdog_pid" 2>/dev/null || true
+	wait "$watchdog_pid" 2>/dev/null || true
 	return "$return_code"
 }
 
@@ -711,7 +736,8 @@ controller_request() {
 	local output="$3"
 	local data="${4:-}"
 	local max_time="${5:-15}"
-	local controller secret header_file http_code curl_status connect_timeout
+	local controller secret header_file response_code_file error_file
+	local http_code curl_status connect_timeout
 	case "$max_time" in
 		''|*[!0-9]*|0) max_time=15 ;;
 	esac
@@ -725,27 +751,24 @@ controller_request() {
 	validate_header_value "$secret" 4096 || return 1
 
 	header_file="${output}.authorization"
+	response_code_file="${output}.http-code"
+	error_file="${output}.curl-error"
 	umask 077
 	printf 'Authorization: Bearer %s\n' "$secret" > "$header_file" || return 1
 
 	if [ -n "$data" ]; then
-		http_code="$(curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
-			-o "$output" -w '%{http_code}' \
-			-X "$method" \
-			-H "@$header_file" \
-			-H 'Content-Type: application/json' \
-			--data "$data" \
-			"http://$controller$endpoint")"
+		run_leaf_with_timeout_capture "$max_time" "$response_code_file" "$error_file" curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
+			-o "$output" -w '%{http_code}' -X "$method" -H "@$header_file" \
+			-H 'Content-Type: application/json' --data "$data" "http://$controller$endpoint"
 		curl_status=$?
 	else
-		http_code="$(curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
-			-o "$output" -w '%{http_code}' \
-			-X "$method" \
-			-H "@$header_file" \
-			"http://$controller$endpoint")"
+		run_leaf_with_timeout_capture "$max_time" "$response_code_file" "$error_file" curl -sS --connect-timeout "$connect_timeout" --max-time "$max_time" \
+			-o "$output" -w '%{http_code}' -X "$method" -H "@$header_file" "http://$controller$endpoint"
 		curl_status=$?
 	fi
-	rm -f "$header_file"
+	http_code="$(sed -n '1p' "$response_code_file" 2>/dev/null || true)"
+	cat "$error_file" >&2 2>/dev/null || true
+	rm -f "$header_file" "$response_code_file" "$error_file"
 	[ "$curl_status" -eq 0 ] || return 1
 	printf '%s' "$http_code"
 }
@@ -818,6 +841,7 @@ proxy_path_healthy() {
 	local work_dir="$1"
 	local deadline="$2"
 	local controller secret group encoded_group http_code header_file
+	local response_code_file error_file curl_status
 	local primary_url secondary_url probe_url max_time delay_timeout_ms
 	controller="$(yaml_scalar external-controller "$ACTIVE_CONFIG")"
 	secret="$(yaml_scalar secret "$ACTIVE_CONFIG")"
@@ -831,6 +855,8 @@ proxy_path_healthy() {
 	[ -n "$group" ] || group=GLOBAL
 	encoded_group="$(urlencode_path_component "$group")"
 	header_file="$work_dir/proxy-delay.authorization"
+	response_code_file="$work_dir/proxy-delay.http-code"
+	error_file="$work_dir/proxy-delay-error"
 	umask 077
 	printf 'Authorization: Bearer %s\n' "$secret" > "$header_file" || return 1
 
@@ -839,20 +865,20 @@ proxy_path_healthy() {
 		max_time="$(remaining_probe_timeout "$PROXY_PROBE_TIMEOUT_SECONDS" "$deadline")" || break
 		delay_timeout_ms=$((max_time * 1000 - 1000))
 		[ "$delay_timeout_ms" -ge 1000 ] || delay_timeout_ms=1000
-		http_code="$(curl -sS --connect-timeout 3 --max-time "$max_time" \
-			-o "$work_dir/proxy-delay-response" -w '%{http_code}' \
-			-H "@$header_file" \
-			-G \
-			--data-urlencode "url=$probe_url" \
-			--data-urlencode "timeout=$delay_timeout_ms" \
-			--data-urlencode 'expected=200/204' \
-			"http://$controller/proxies/$encoded_group/delay" 2>"$work_dir/proxy-delay-error")" || continue
+		run_leaf_with_timeout_capture "$max_time" "$response_code_file" "$error_file" curl -sS --connect-timeout 3 --max-time "$max_time" \
+			-o "$work_dir/proxy-delay-response" -w '%{http_code}' -H "@$header_file" -G \
+			--data-urlencode "url=$probe_url" --data-urlencode "timeout=$delay_timeout_ms" \
+			--data-urlencode 'expected=200/204' "http://$controller/proxies/$encoded_group/delay"
+		curl_status=$?
+		cat "$error_file" >&2 2>/dev/null || true
+		[ "$curl_status" -eq 0 ] || continue
+		http_code="$(sed -n '1p' "$response_code_file" 2>/dev/null || true)"
 		if [ "$http_code" = "200" ]; then
-			rm -f "$header_file"
+			rm -f "$header_file" "$response_code_file" "$error_file"
 			return 0
 		fi
 	done
-	rm -f "$header_file"
+	rm -f "$header_file" "$response_code_file" "$error_file"
 	return 1
 }
 
