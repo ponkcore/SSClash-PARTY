@@ -32,15 +32,15 @@ fi
 case "$command" in
     check)
         case "$current" in
-            4.7.0-party.12) relation=up-to-date ;;
-            4.7.0-party.13) relation=installed-newer ;;
+            4.7.0-party.13) relation=up-to-date ;;
+            4.7.0-party.14) relation=installed-newer ;;
             *) relation=update-available ;;
         esac
-        printf 'SSCLASH_PARTY_UPDATE|%s|4.7.0-party.12|%s\n' "$current" "$relation"
+        printf 'SSCLASH_PARTY_UPDATE|%s|4.7.0-party.13|%s\n' "$current" "$relation"
         ;;
     upgrade)
         printf '%s\n' 'package manager fixture output'
-        printf '%s\n' '4.7.0-party.12' > "$SSCLASH_PARTY_VERSION_FILE"
+        printf '%s\n' '4.7.0-party.13' > "$SSCLASH_PARTY_VERSION_FILE"
         ;;
     *) exit 2 ;;
 esac
@@ -77,7 +77,7 @@ output=$(wait_for_terminal_status)
 jq -e '
     .phase == "update_available" and
     .installed == "4.7.0-party.9" and
-    .latest == "4.7.0-party.12"
+    .latest == "4.7.0-party.13"
 ' <<<"$output" >/dev/null || fail 'stable update was not detected'
 
 [[ $(stat -c '%a' "$state_dir/update.log") == 600 ]] || fail 'update log is not private'
@@ -87,22 +87,22 @@ fi
 
 "${helper_environment[@]}" "$helper" start >/dev/null
 output=$(wait_for_terminal_status)
-jq -e '.phase == "success" and .installed == "4.7.0-party.12"' <<<"$output" >/dev/null ||
+jq -e '.phase == "success" and .installed == "4.7.0-party.13"' <<<"$output" >/dev/null ||
     fail 'background update did not finish successfully'
 
 "${helper_environment[@]}" "$helper" check >/dev/null
 output=$(wait_for_terminal_status)
-jq -e '.phase == "up_to_date" and .latest == "4.7.0-party.12"' <<<"$output" >/dev/null ||
+jq -e '.phase == "up_to_date" and .latest == "4.7.0-party.13"' <<<"$output" >/dev/null ||
     fail 'updated installation was not reported as current'
 
-printf '%s\n' '4.7.0-party.13' > "$version_file"
+printf '%s\n' '4.7.0-party.14' > "$version_file"
 output=$("${helper_environment[@]}" "$helper" status)
-jq -e '.phase == "not_checked" and .installed == "4.7.0-party.13" and .latest == ""' \
+jq -e '.phase == "not_checked" and .installed == "4.7.0-party.14" and .latest == ""' \
     <<<"$output" >/dev/null || fail 'manual package change left stale updater state'
 
 "${helper_environment[@]}" "$helper" check >/dev/null
 output=$(wait_for_terminal_status)
-jq -e '.phase == "ahead" and .installed == "4.7.0-party.13"' <<<"$output" >/dev/null ||
+jq -e '.phase == "ahead" and .installed == "4.7.0-party.14"' <<<"$output" >/dev/null ||
     fail 'newer installed version was not protected from downgrade'
 
 "${helper_environment[@]}" SSCLASH_PARTY_FAKE_FAIL=1 "$helper" check >/dev/null

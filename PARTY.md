@@ -257,6 +257,24 @@ It runs controller and proxy health-check curl calls as direct child processes
 under independent hard timeouts, captures status and errors in private files,
 and preserves the existing bounded DNS and monotonic health-deadline behavior.
 
+The detached guarded-start release is:
+
+```text
+Git tag:         v4.7.0-party.13
+OpenWrt package: luci-app-ssclash 4.7.0-r15
+```
+
+LuCI no longer holds the guarded managed-profile transaction inside one rpcd
+`file.exec` call: OpenWrt's stock rpcd kills exec'd processes after a 30-second
+server-side timeout, which orphaned the guarded-start watchdog and later
+stopped and disabled a healthy service. The interface now kicks a detached
+`sync-start-async` run that publishes a working status record before the
+background child exists and polls that record until it reaches a terminal
+state. The watchdog records an explicit `watchdog_timeout` status before
+restoring direct networking, and status records are published through unique
+temporary files under concurrency. Command-line `sync-start` and
+`start-guarded` remain synchronous with their exit codes.
+
 The release process remains gated by the complete validation and package matrix
 listed above.
 
