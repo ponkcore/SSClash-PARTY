@@ -379,4 +379,67 @@ while IFS= read -r nslookup_pid; do
     fi
 done < "$guarded_dns_timeout_case/nslookup.pids"
 
+guarded_async_case="$(create_case guarded-async subscription auto)"
+guarded_async_started="$(date +%s)"
+FAKE_CLASH_START_DELAY_SECONDS=2 \
+SSCLASH_HEALTH_TIMEOUT_SECONDS=4 \
+SSCLASH_DNS_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_STARTUP_GRACE_SECONDS=3 \
+SSCLASH_WATCHDOG_MARGIN_SECONDS=2 \
+    run_action "$guarded_async_case" full sync-start-async
+guarded_async_elapsed=$(( $(date +%s) - guarded_async_started ))
+[[ "$guarded_async_elapsed" -le 3 ]]
+assert_json "$guarded_async_case/result.json" '.state == "working" and .code == "starting"'
+guarded_async_deadline=$(( $(date +%s) + 20 ))
+while :; do
+    if jq -e '.state == "success" and .code == "updated"' "$guarded_async_case/state/status.json" >/dev/null 2>&1; then
+        break
+    fi
+    [[ "$(date +%s)" -lt "$guarded_async_deadline" ]] || { printf 'detached guarded start did not finish\n' >&2; exit 1; }
+    sleep 1
+done
+grep -qx 'running=1' "$guarded_async_case/service.state"
+grep -qx 'enabled=1' "$guarded_async_case/service.state"
+grep -q 'Runtime health checks passed' "$guarded_async_case/events.log"
+
+async_busy_case="$(create_case async-busy subscription auto)"
+mkdir -p "$async_busy_case/sync.lock"
+printf '%s\n' "$$" > "$async_busy_case/sync.lock/pid"
+run_action "$async_busy_case" full sync-start-async
+assert_json "$async_busy_case/result.json" '.state == "working" and .code == "starting"'
+async_busy_deadline=$(( $(date +%s) + 10 ))
+while :; do
+    if jq -e '.state == "error" and .code == "busy"' "$async_busy_case/state/status.json" >/dev/null 2>&1; then
+        break
+    fi
+    [[ "$(date +%s)" -lt "$async_busy_deadline" ]] || { printf 'detached busy status missing\n' >&2; exit 1; }
+    sleep 1
+done
+rm -rf "$async_busy_case/sync.lock"
+
+guarded_watchdog_case="$(create_case guarded-watchdog subscription auto)"
+FAKE_CLASH_START_DELAY_SECONDS=12 \
+SSCLASH_HEALTH_TIMEOUT_SECONDS=1 \
+SSCLASH_DNS_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_CONTROLLER_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_PROXY_PROBE_TIMEOUT_SECONDS=1 \
+SSCLASH_STARTUP_GRACE_SECONDS=1 \
+SSCLASH_WATCHDOG_MARGIN_SECONDS=2 \
+    run_action "$guarded_watchdog_case" full start-guarded &
+guarded_watchdog_pid=$!
+guarded_watchdog_deadline=$(( $(date +%s) + 12 ))
+while :; do
+    if jq -e '.state == "error" and .code == "watchdog_timeout"' "$guarded_watchdog_case/state/status.json" >/dev/null 2>&1; then
+        break
+    fi
+    [[ "$(date +%s)" -lt "$guarded_watchdog_deadline" ]] || { printf 'watchdog timeout status missing\n' >&2; exit 1; }
+    sleep 1
+done
+grep -qx 'running=0' "$guarded_watchdog_case/service.state"
+grep -qx 'enabled=0' "$guarded_watchdog_case/service.state"
+grep -q 'Guarded start timed out' "$guarded_watchdog_case/events.log"
+kill "$guarded_watchdog_pid" 2>/dev/null || true
+wait "$guarded_watchdog_pid" 2>/dev/null || true
 printf 'profile-sync integration tests passed\n'

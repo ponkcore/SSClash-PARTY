@@ -5,6 +5,8 @@
 const RPC_TIMEOUT_SEC = 60;
 const SERVICE_POLL_TIMEOUT_MS = 60000;
 const SERVICE_POLL_INTERVAL_MS = 500;
+const PROFILE_STATUS_POLL_INTERVAL_MS = 2000;
+const PROFILE_STATUS_TIMEOUT_MS = 190000;
 const WRITE_CHUNK_SIZE = 8000;
 const WRITE_INLINE_MAX = 32768;
 const MAX_CLASH_TEST_ERROR_LEN = 8000;
@@ -210,6 +212,24 @@ async function waitForServiceStatus(getStatusFn, targetStatus, timeoutMs) {
     return false;
 }
 
+async function waitForProfileTerminal(statusFile, timeoutMs, onPoll) {
+    const deadline = Date.now() + (timeoutMs || PROFILE_STATUS_TIMEOUT_MS);
+    while (Date.now() < deadline) {
+        let status = {};
+        try {
+            status = JSON.parse(String(await fs.read(statusFile) || '').trim()) || {};
+        } catch (_e) {}
+        if (status.state && status.state !== 'working')
+            return status;
+        if (onPoll)
+            onPoll(status);
+        await new Promise(function(resolve) {
+            setTimeout(resolve, PROFILE_STATUS_POLL_INTERVAL_MS);
+        });
+    }
+    return null;
+}
+
 return L.Class.extend({
     bumpRpcTimeout: bumpRpcTimeout,
     execDetached: execDetached,
@@ -218,6 +238,7 @@ return L.Class.extend({
     formatClashLogMessage: formatClashLogMessage,
     getClashRunning: getClashRunning,
     waitForServiceStatus: waitForServiceStatus,
+    waitForProfileTerminal: waitForProfileTerminal,
     SERVICE_POLL_TIMEOUT_MS: SERVICE_POLL_TIMEOUT_MS,
 
     isLightTheme: function() {

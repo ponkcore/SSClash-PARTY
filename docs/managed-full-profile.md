@@ -138,6 +138,16 @@ pass:
 If confirmation does not arrive before the watchdog deadline, SSClash is
 stopped and disabled so that direct routing can recover.
 
+LuCI never holds the guarded transaction inside a single rpcd `file.exec`
+call: OpenWrt's rpcd kills exec'd processes after a configurable
+server-side timeout (30 seconds in the stock configuration), which would
+orphan the start watchdog and later stop a healthy service. The interface
+instead kicks a detached `sync-start-async` run that writes a working
+status record before the background child exists, and polls that record
+until it leaves the working state. The watchdog itself records a
+`watchdog_timeout` error status before stopping and disabling the service.
+Command-line `sync-start` and `start-guarded` remain synchronous.
+
 ## Router Integration and DNS modes
 
 Open **Services → SSClash → Settings → Router Integration** for the protected

@@ -634,3 +634,6 @@ msgstr "捐赠"
 
 msgid "Support the author"
 msgstr "支持作者"
+
+msgid "The guarded update is still running; its result will appear in the profile status and the Log page."
+msgstr "受保护的更新仍在运行；其结果将显示在配置状态和日志页面中。"

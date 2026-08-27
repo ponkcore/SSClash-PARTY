@@ -63,11 +63,18 @@ async function toggleService() {
         if (running) {
             await dispatchServiceActions(['stop', 'disable']);
         } else if (managedProfileConfigured) {
-            const result = await fs.exec(PROFILE_HELPER, ['sync-start']);
-            if (result.code !== 0) {
-                const status = parseProfileStatus(result.stdout);
+            const kick = await fs.exec(PROFILE_HELPER, ['sync-start-async']);
+            if (kick.code !== 0) {
+                const status = parseProfileStatus(kick.stdout);
                 throw new Error(status.message || _('Managed profile startup failed.'));
             }
+            const status = await view_ssclash_utils.waitForProfileTerminal(PROFILE_STATUS_FILE);
+            if (!status) {
+                notifyRestartPending();
+                return;
+            }
+            if (status.state !== 'success')
+                throw new Error(status.message || _('Managed profile startup failed.'));
         } else {
             await dispatchServiceActions(['start', 'enable']);
         }
@@ -771,12 +778,38 @@ return view.extend({
                 if (action === 'validate' || action === 'activate') {
                     actionArguments.push(selectedProfileID);
                 }
-                const result = await fs.exec(PROFILE_HELPER, actionArguments);
-                const status = await refreshProfileStatus(result.stdout);
-                if (result.code !== 0) {
-                    throw new Error(status.message || _('Managed profile operation failed.'));
+                let status;
+                if (action === 'sync-start') {
+                    // A fully guarded update outlives the rpcd server-side
+                    // exec timeout, so it is kicked detached and tracked
+                    // through the on-disk status record instead of the exec
+                    // result.
+                    const kick = await fs.exec(PROFILE_HELPER, ['sync-start-async']);
+                    if (kick.code !== 0) {
+                        status = await refreshProfileStatus(kick.stdout);
+                        throw new Error(status.message || _('Managed profile startup failed.'));
+                    }
+                    status = await view_ssclash_utils.waitForProfileTerminal(PROFILE_STATUS_FILE, null, function(pollStatus) {
+                        if (pollStatus.state === 'working')
+                            renderProfileStatus(pollStatus);
+                    });
+                    if (!status) {
+                        ui.addNotification(null, E('p',
+                            _('The guarded update is still running; its result will appear in the profile status and the Log page.')
+                        ), 'info');
+                        await refreshProfileStatus('');
+                        return;
+                    }
+                    status = await refreshProfileStatus('');
+                    if (status.state !== 'success')
+                        throw new Error(status.message || _('Managed profile startup failed.'));
+                } else {
+                    const result = await fs.exec(PROFILE_HELPER, actionArguments);
+                    status = await refreshProfileStatus(result.stdout);
+                    if (result.code !== 0) {
+                        throw new Error(status.message || _('Managed profile operation failed.'));
+                    }
                 }
-
                 if (status.summary && status.summary.skipped_lines) {
                     ui.addNotification(null, E('p', _(
                         'The source was applied, but %s syntactically invalid line(s) were rejected.'

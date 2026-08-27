@@ -1212,6 +1212,7 @@ guarded_start() {
 		if [ ! -f "$confirmed" ]; then
 			"$CLASH_INIT" stop >/dev/null 2>&1 || true
 			"$CLASH_INIT" disable >/dev/null 2>&1 || true
+			write_status error watchdog_timeout "Guarded start timed out; SSClash was stopped and disabled." null false
 			log_message "Guarded start timed out; SSClash was stopped and disabled."
 		fi
 	) >/dev/null 2>&1 &
@@ -1701,6 +1702,26 @@ daemon_loop() {
 	done
 }
 
+# Kick a fully guarded sync-start as a detached background run and return
+# immediately. LuCI reaches this helper through rpcd file.exec, whose
+# server-side timeout (30 seconds in the stock OpenWrt configuration) kills
+# the exec'd process while a guarded transaction is still running; the
+# transaction must therefore live outside the exec'd process. The working
+# status record is written before the background child exists so a caller
+# that starts polling after this command returns can never mistake a stale
+# terminal record from a previous run for the result of this run.
+sync_start_async() {
+	STATUS_SOURCE_MODE="$(resolve_source_mode)"
+	STATUS_PROFILE_ID="$(active_profile_id)"
+	write_status working starting "Generating, validating and starting with rollback protection in the background." null false
+	if command -v setsid >/dev/null 2>&1; then
+		setsid "$SELF" sync-start >/dev/null 2>&1 </dev/null &
+	else
+		"$SELF" sync-start >/dev/null 2>&1 </dev/null &
+	fi
+	print_status
+}
+
 delete_profile() {
 	local profile_id="$1"
 	local active count
@@ -1757,6 +1778,9 @@ case "${1:-status}" in
 	sync-start)
 		perform_sync 1
 		;;
+	sync-start-async)
+		sync_start_async
+		;;
 	validate)
 		[ -n "${2:-}" ] || {
 			echo "A subscription profile ID is required." >&2
@@ -1803,7 +1827,7 @@ case "${1:-status}" in
 		daemon_loop
 		;;
 	*)
-		echo "Usage: $SELF {status|sync|sync-start|validate PROFILE|activate PROFILE|delete PROFILE|start-guarded|daemon}" >&2
+		echo "Usage: $SELF {status|sync|sync-start|sync-start-async|validate PROFILE|activate PROFILE|delete PROFILE|start-guarded|daemon}" >&2
 		exit 2
 		;;
 esac

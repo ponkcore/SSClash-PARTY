@@ -742,3 +742,6 @@ msgstr "Последняя проверка: "
 
 msgid "The updater preserves PARTY configuration and the previous service state. Keep a current OpenWrt backup and do not interrupt power while a package is being installed."
 msgstr "Модуль обновления сохраняет конфигурацию PARTY и прежнее состояние сервисов. Храните актуальную резервную копию OpenWrt и не отключайте питание во время установки пакета."
+
+msgid "The guarded update is still running; its result will appear in the profile status and the Log page."
+msgstr "Защищённый запуск всё ещё выполняется; его результат появится в состоянии профиля и на странице журнала."
