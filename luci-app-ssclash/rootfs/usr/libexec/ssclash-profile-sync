@@ -93,7 +93,7 @@ write_status() {
 	local message="$3"
 	local summary="${4:-null}"
 	local changed="${5:-false}"
-	local timestamp
+	local temporary
 	timestamp="$(now_epoch)"
 
 	case "$summary" in
@@ -110,6 +110,11 @@ write_status() {
 	esac
 
 	umask 077
+	# A unique temporary name is required: the guarded-start watchdog may
+	# write its terminal record while the parent helper is still writing
+	# its own. A shared name would interleave the two records before the
+	# rename; unique names plus rename keep each publish atomic.
+	temporary="$(mktemp "$STATUS_FILE.tmp.XXXXXX")"
 	{
 		printf '{'
 		printf '"state":"%s",' "$state"
@@ -122,8 +127,8 @@ write_status() {
 		printf '"hwid_used":%s,' "$STATUS_HWID_USED"
 		printf '"summary":%s' "$summary"
 		printf '}\n'
-	} > "$STATUS_FILE.tmp"
-	mv "$STATUS_FILE.tmp" "$STATUS_FILE"
+	} > "$temporary"
+	mv "$temporary" "$STATUS_FILE"
 }
 
 print_status() {
