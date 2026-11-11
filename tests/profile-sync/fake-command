@@ -257,6 +257,29 @@ curl)
         printf 'x-hwid-limit: true\r\n' >> "$response_headers"
         printf 'Device limit reached\n' > "$output_file"
         ;;
+    hwid-limit-then-hwid)
+        if [[ "$count" -le 2 && "$has_hwid" == false ]]; then
+            printf 'x-hwid-not-supported: true\r\n' >> "$response_headers"
+            printf 'x-hwid-limit: true\r\n' >> "$response_headers"
+            printf 'HWID is required\n' > "$output_file"
+        elif [[ "$count" -eq 3 && "$user_agent" == mihomo/* && "$has_hwid" == true ]]; then
+            cp "${FAKE_FIXTURE_DIR:?}/full.yaml" "$output_file"
+        else
+            exit 97
+        fi
+        ;;
+    hwid-limit-persists)
+        if [[ "$count" -le 2 && "$has_hwid" == false ]]; then
+            printf 'x-hwid-not-supported: true\r\n' >> "$response_headers"
+            printf 'x-hwid-limit: true\r\n' >> "$response_headers"
+            printf 'HWID is required\n' > "$output_file"
+        elif [[ "$count" -eq 3 && "$user_agent" == mihomo/* && "$has_hwid" == true ]]; then
+            printf 'x-hwid-limit: true\r\n' >> "$response_headers"
+            printf 'Device limit reached\n' > "$output_file"
+        else
+            exit 98
+        fi
+        ;;
     source-changed)
         [[ "$count" -eq 1 && "$has_hwid" == false ]] || exit 95
         state_set ssclash_profile.main.source_mode manual

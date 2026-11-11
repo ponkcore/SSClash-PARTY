@@ -1078,13 +1078,25 @@ fetch_and_inspect_attempt() {
 	fi
 	FETCH_TRANSPORT_SUCCEEDED=1
 	http_code="$(sed -n '1p' "$code_file")"
-	if response_hwid_limit_reached "$headers"; then
-		FETCH_LIMIT_REACHED=1
-		return 1
-	fi
-	if response_requires_hwid "$headers"; then
-		FETCH_SHOULD_TRY_HWID=1
-		return 1
+	if [ -n "$hwid" ]; then
+		# With an HWID attached, a limit flag is a genuine rejection:
+		# report it before any further attempt.
+		if response_hwid_limit_reached "$headers"; then
+			FETCH_LIMIT_REACHED=1
+			return 1
+		fi
+	else
+		# Without an HWID, panels can signal "HWID required" and
+		# "limit reached" in one response. Prefer the explicit HWID
+		# request so the retry with a stable HWID actually runs.
+		if response_requires_hwid "$headers"; then
+			FETCH_SHOULD_TRY_HWID=1
+			return 1
+		fi
+		if response_hwid_limit_reached "$headers"; then
+			FETCH_LIMIT_REACHED=1
+			return 1
+		fi
 	fi
 	case "$http_code" in
 		2??) ;;

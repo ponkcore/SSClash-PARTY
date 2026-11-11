@@ -175,6 +175,25 @@ fi
 assert_json "$limit_case/state/status.json" '.state == "error"'
 assert_json "$limit_case/state/status.json" '.code == "hwid_limit_reached"'
 
+dualflag_case="$(create_case hwid-limit-then-hwid subscription auto)"
+run_sync "$dualflag_case" hwid-limit-then-hwid
+[[ "$(<"$dualflag_case/curl.count")" == 3 ]]
+generated_hwid="$(awk -F= '$1 == "ssclash_profile.default.hwid" { print $2 }' "$dualflag_case/config/ssclash_profile")"
+[[ "$generated_hwid" =~ ^[A-Za-z0-9=-]{10,64}$ ]]
+assert_json "$dualflag_case/state/status.json" '.state == "success"'
+assert_json "$dualflag_case/state/status.json" '.hwid_used == true'
+assert_json "$dualflag_case/state/status.json" '.summary.source_format == "full"'
+assert_json "$dualflag_case/state/status.json" '.summary.rules_source == "remote"'
+
+persist_case="$(create_case hwid-limit-persists subscription auto)"
+if run_sync "$persist_case" hwid-limit-persists; then
+    printf 'A dual-flag limit that persists on the HWID attempt unexpectedly succeeded.\n' >&2
+    exit 1
+fi
+[[ "$(<"$persist_case/curl.count")" == 3 ]]
+assert_json "$persist_case/state/status.json" '.state == "error"'
+assert_json "$persist_case/state/status.json" '.code == "hwid_limit_reached"'
+
 changed_case="$(create_case source-changed subscription auto)"
 changed_before_hash="$(sha256sum "$changed_case/clash/config.yaml" | awk '{print $1}')"
 if run_sync "$changed_case" source-changed; then

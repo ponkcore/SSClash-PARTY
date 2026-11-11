@@ -275,6 +275,21 @@ restoring direct networking, and status records are published through unique
 temporary files under concurrency. Command-line `sync-start` and
 `start-guarded` remain synchronous with their exit codes.
 
+The HWID-requiring-subscription repair release is:
+
+```text
+Git tag:         v4.7.0-party.14
+OpenWrt package: luci-app-ssclash 4.7.0-r16
+```
+
+Panels can answer a request without an `x-hwid` header with both
+`x-hwid-not-supported: true` and `x-hwid-limit: true` in one response. PARTY
+previously treated the limit flag as final and stopped before its stable-HWID
+retry. It now prefers the explicit HWID request on header-less attempts, so
+the retry runs; a limit flag on an attempt that already carried an HWID is
+still reported as `hwid_limit_reached`. Synchronization behavior for panels
+that send either flag alone is unchanged.
+
 The release process remains gated by the complete validation and package matrix
 listed above.
 
